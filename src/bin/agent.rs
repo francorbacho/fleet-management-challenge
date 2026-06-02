@@ -1,6 +1,6 @@
 use fleet_management_challenge::domain::{
-    FleetCommand, FleetCommandKind, FleetUnit, NewFleetUnit, WorkAssignment, WorkCalculation,
-    WorkSubmission,
+    ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand, FleetCommandKind,
+    FleetUnit, NewFleetUnit,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -90,9 +90,9 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
                 "simulating restart"
             );
         }
-        FleetCommandKind::DoWork => {
-            let Some(ref assignment) = command.work else {
-                warn!(command_id = %command.id, "do_work command missing work assignment");
+        FleetCommandKind::Compute => {
+            let Some(ref assignment) = command.compute else {
+                warn!(command_id = %command.id, "compute command missing assignment");
                 return;
             };
             let result = calculate(assignment);
@@ -104,27 +104,27 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
                 number = assignment.number,
                 calculation = ?assignment.calculation,
                 result = result,
-                "completed assigned work"
+                "completed assigned compute job"
             );
 
             sleep(Duration::from_secs(5)).await;
 
-            if let Err(error) = submit_work_result(client, api_url, &command, result).await {
-                warn!(%error, command_id = %command.id, "failed to submit work result");
+            if let Err(error) = submit_compute_result(client, api_url, &command, result).await {
+                warn!(%error, command_id = %command.id, "failed to submit compute result");
             }
         }
     }
 }
 
-fn calculate(assignment: &WorkAssignment) -> f64 {
+fn calculate(assignment: &ComputeAssignment) -> f64 {
     match assignment.calculation {
-        WorkCalculation::Double => assignment.number * 2.0,
-        WorkCalculation::Square => assignment.number * assignment.number,
-        WorkCalculation::SquareRoot => assignment.number.sqrt(),
+        ComputeCalculation::Double => assignment.number * 2.0,
+        ComputeCalculation::Square => assignment.number * assignment.number,
+        ComputeCalculation::SquareRoot => assignment.number.sqrt(),
     }
 }
 
-async fn submit_work_result(
+async fn submit_compute_result(
     client: &reqwest::Client,
     api_url: &str,
     command: &FleetCommand,
@@ -137,7 +137,7 @@ async fn submit_work_result(
 
     client
         .post(submit_url)
-        .json(&WorkSubmission { result })
+        .json(&ComputeSubmission { result })
         .send()
         .await?
         .error_for_status()?;

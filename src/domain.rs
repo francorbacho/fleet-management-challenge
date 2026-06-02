@@ -60,7 +60,7 @@ pub struct FleetCommand {
     pub unit_id: UnitId,
     pub kind: FleetCommandKind,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub work: Option<WorkAssignment>,
+    pub compute: Option<ComputeAssignment>,
 }
 
 impl FleetCommand {
@@ -69,16 +69,16 @@ impl FleetCommand {
             id: Uuid::new_v4(),
             unit_id,
             kind,
-            work: None,
+            compute: None,
         }
     }
 
-    pub fn do_work(unit_id: UnitId, work: WorkAssignment) -> Self {
+    pub fn compute(unit_id: UnitId, compute: ComputeAssignment) -> Self {
         Self {
             id: Uuid::new_v4(),
             unit_id,
-            kind: FleetCommandKind::DoWork,
-            work: Some(work),
+            kind: FleetCommandKind::Compute,
+            compute: Some(compute),
         }
     }
 }
@@ -86,7 +86,7 @@ impl FleetCommand {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct CommandRequest {
     pub kind: FleetCommandKind,
-    pub work: Option<WorkRequest>,
+    pub compute: Option<ComputeRequest>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -94,31 +94,31 @@ pub struct CommandRequest {
 pub enum FleetCommandKind {
     Diagnostics,
     Restart,
-    DoWork,
+    Compute,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WorkRequest {
+pub struct ComputeRequest {
     pub number: f64,
-    pub calculation: WorkCalculation,
+    pub calculation: ComputeCalculation,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WorkAssignment {
+pub struct ComputeAssignment {
     pub number: f64,
-    pub calculation: WorkCalculation,
+    pub calculation: ComputeCalculation,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkCalculation {
+pub enum ComputeCalculation {
     Double,
     Square,
     SquareRoot,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WorkSubmission {
+pub struct ComputeSubmission {
     pub result: f64,
 }
 
@@ -127,7 +127,7 @@ pub struct JobRecord {
     pub job_id: Uuid,
     pub unit_id: UnitId,
     pub number: f64,
-    pub calculation: WorkCalculation,
+    pub calculation: ComputeCalculation,
     pub status: JobStatus,
     pub result: Option<f64>,
 }

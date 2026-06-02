@@ -11,8 +11,8 @@ use tokio::time::{Duration, sleep};
 use tracing::{info, instrument};
 
 use crate::domain::{
-    CommandRequest, FleetCommand, FleetCommandKind, FleetRegistry, FleetUnit, JobRecord, JobStatus,
-    NewFleetUnit, RegistryError, UnitId, WorkAssignment, WorkSubmission,
+    CommandRequest, ComputeAssignment, ComputeSubmission, FleetCommand, FleetCommandKind,
+    FleetRegistry, FleetUnit, JobRecord, JobStatus, NewFleetUnit, RegistryError, UnitId,
 };
 
 #[derive(Clone)]
@@ -161,16 +161,16 @@ fn build_command(unit_id: UnitId, request: CommandRequest) -> Result<FleetComman
             Ok(FleetCommand::new(unit_id, FleetCommandKind::Diagnostics))
         }
         FleetCommandKind::Restart => Ok(FleetCommand::new(unit_id, FleetCommandKind::Restart)),
-        FleetCommandKind::DoWork => {
-            let work = request.work.ok_or(ApiError::BadRequest(
-                "do_work commands require a work payload",
+        FleetCommandKind::Compute => {
+            let compute = request.compute.ok_or(ApiError::BadRequest(
+                "compute commands require a compute payload",
             ))?;
 
-            Ok(FleetCommand::do_work(
+            Ok(FleetCommand::compute(
                 unit_id,
-                WorkAssignment {
-                    number: work.number,
-                    calculation: work.calculation,
+                ComputeAssignment {
+                    number: compute.number,
+                    calculation: compute.calculation,
                 },
             ))
         }
@@ -178,15 +178,15 @@ fn build_command(unit_id: UnitId, request: CommandRequest) -> Result<FleetComman
 }
 
 fn track_job(state: &AppState, command: &FleetCommand) {
-    let Some(work) = command.work.clone() else {
+    let Some(compute) = command.compute.clone() else {
         return;
     };
 
     let job = JobRecord {
         job_id: command.id,
         unit_id: command.unit_id,
-        number: work.number,
-        calculation: work.calculation,
+        number: compute.number,
+        calculation: compute.calculation,
         status: JobStatus::Pending,
         result: None,
     };
@@ -202,7 +202,7 @@ fn track_job(state: &AppState, command: &FleetCommand) {
 async fn submit_job(
     State(state): State<AppState>,
     Path((unit_id, job_id)): Path<(UnitId, uuid::Uuid)>,
-    Json(submission): Json<WorkSubmission>,
+    Json(submission): Json<ComputeSubmission>,
 ) -> Result<StatusCode, ApiError> {
     state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
     complete_job(&state, unit_id, job_id, &submission)?;
@@ -221,7 +221,7 @@ fn complete_job(
     state: &AppState,
     unit_id: UnitId,
     job_id: uuid::Uuid,
-    submission: &WorkSubmission,
+    submission: &ComputeSubmission,
 ) -> Result<(), ApiError> {
     let mut jobs = state.jobs.lock().expect("job table lock poisoned");
     let job = jobs.get_mut(&job_id).ok_or(ApiError::NotFound)?;
@@ -301,7 +301,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
     .meta { color: #667085; font-size: 13px; overflow-wrap: anywhere; }
     .result { font-weight: 700; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .work { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #edf0f5; margin-top: 8px; }
+    .compute { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #edf0f5; margin-top: 8px; }
     input[type="number"] { width: 110px; border: 1px solid #b8c0cc; border-radius: 6px; padding: 8px; }
     select { border: 1px solid #b8c0cc; border-radius: 6px; padding: 8px; background: #fff; }
     .empty { color: #667085; padding: 24px 0; }
@@ -373,14 +373,14 @@ const INDEX_HTML: &str = r##"<!doctype html>
           <button data-kind="diagnostics">Diagnostics</button>
           <button data-kind="restart">Restart</button>
         </div>
-        <div class="work">
-          <input type="number" step="any" value="12.5" aria-label="Work number">
+        <div class="compute">
+          <input type="number" step="any" value="12.5" aria-label="Compute number">
           <select aria-label="Calculation">
             <option value="double">Double</option>
             <option value="square">Square</option>
             <option value="square_root">Square root</option>
           </select>
-          <button class="primary" data-kind="do_work">Do work</button>
+          <button class="primary" data-kind="compute">Compute</button>
         </div>
       `;
 
@@ -410,8 +410,8 @@ const INDEX_HTML: &str = r##"<!doctype html>
 
     async function queueCommand(agentId, kind, root) {
       const body = { kind };
-      if (kind === "do_work") {
-        body.work = {
+      if (kind === "compute") {
+        body.compute = {
           number: Number(root.querySelector("input").value),
           calculation: root.querySelector("select").value
         };
