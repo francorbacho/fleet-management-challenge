@@ -6,9 +6,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
+use tokio::time::{Duration, sleep};
 use tracing::{info, instrument};
 
-use crate::domain::{FleetRegistry, FleetUnit, NewFleetUnit, RegistryError, UnitId};
+use crate::domain::{FleetEvent, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError, UnitId};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -20,6 +21,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/fleet", get(list_units).post(register_unit))
         .route("/fleet/{unit_id}", get(get_unit))
+        .route("/fleet/{unit_id}/events/next", get(next_event))
         .with_state(state)
 }
 
@@ -54,6 +56,27 @@ async fn get_unit(
         .get_unit(unit_id)
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+#[instrument(skip(state))]
+async fn next_event(
+    State(state): State<AppState>,
+    Path(unit_id): Path<UnitId>,
+) -> Result<Json<FleetEvent>, ApiError> {
+    state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
+
+    sleep(Duration::from_secs(2)).await;
+
+    let event = FleetEvent::diagnostics(unit_id);
+
+    info!(
+        unit_id = %unit_id,
+        event_id = %event.id,
+        event_kind = ?event.kind,
+        "delivered fleet event"
+    );
+
+    Ok(Json(event))
 }
 
 #[derive(Debug)]
