@@ -83,12 +83,24 @@ impl FleetCommand {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CommandRequest {
+    pub kind: FleetCommandKind,
+    pub work: Option<WorkRequest>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FleetCommandKind {
     Diagnostics,
     Restart,
     DoWork,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct WorkRequest {
+    pub number: f64,
+    pub calculation: WorkCalculation,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

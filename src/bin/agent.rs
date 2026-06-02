@@ -39,7 +39,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         match poll_next_command(&client, &command_url).await {
-            Ok(command) => handle_command(&client, api_url.trim_end_matches('/'), command).await,
+            Ok(Some(command)) => {
+                handle_command(&client, api_url.trim_end_matches('/'), command).await
+            }
+            Ok(None) => {}
             Err(error) => {
                 warn!(%error, "command poll failed");
                 sleep(Duration::from_secs(3)).await;
@@ -61,14 +64,14 @@ fn init_tracing() {
 async fn poll_next_command(
     client: &reqwest::Client,
     command_url: &str,
-) -> Result<FleetCommand, reqwest::Error> {
-    client
-        .get(command_url)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<FleetCommand>()
-        .await
+) -> Result<Option<FleetCommand>, reqwest::Error> {
+    let response = client.get(command_url).send().await?.error_for_status()?;
+
+    if response.status() == reqwest::StatusCode::NO_CONTENT {
+        return Ok(None);
+    }
+
+    response.json::<FleetCommand>().await.map(Some)
 }
 
 async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetCommand) {
