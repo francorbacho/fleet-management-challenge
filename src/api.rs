@@ -11,14 +11,15 @@ use tokio::time::{Duration, sleep};
 use tracing::{info, instrument};
 
 use crate::domain::{
-    CommandRequest, FleetCommand, FleetCommandKind, FleetRegistry, FleetUnit, NewFleetUnit,
-    RegistryError, UnitId, WorkAssignment, WorkSubmission,
+    CommandRequest, FleetCommand, FleetCommandKind, FleetRegistry, FleetUnit, JobRecord, JobStatus,
+    NewFleetUnit, RegistryError, UnitId, WorkAssignment, WorkSubmission,
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Arc<dyn FleetRegistry>,
     pub command_queues: Arc<Mutex<HashMap<UnitId, VecDeque<FleetCommand>>>>,
+    pub jobs: Arc<Mutex<HashMap<uuid::Uuid, JobRecord>>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -26,6 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/health", get(health))
         .route("/fleet", get(list_units).post(register_unit))
+        .route("/jobs", get(list_jobs))
         .route("/fleet/{unit_id}", get(get_unit))
         .route("/fleet/{unit_id}/commands", post(queue_command))
         .route("/fleet/{unit_id}/commands/next", get(next_command))
@@ -44,6 +46,20 @@ async fn health() -> StatusCode {
 #[instrument(skip(state))]
 async fn list_units(State(state): State<AppState>) -> Json<Vec<FleetUnit>> {
     Json(state.registry.list_units())
+}
+
+#[instrument(skip(state))]
+async fn list_jobs(State(state): State<AppState>) -> Json<Vec<JobRecord>> {
+    let mut jobs = state
+        .jobs
+        .lock()
+        .expect("job table lock poisoned")
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    jobs.sort_by_key(|job| job.job_id);
+
+    Json(jobs)
 }
 
 #[instrument(skip(state, input))]
@@ -77,6 +93,7 @@ async fn queue_command(
             .or_default()
             .push_back(command.clone());
     }
+    track_job(&state, &command);
 
     info!(
         unit_id = %unit_id,
@@ -160,6 +177,27 @@ fn build_command(unit_id: UnitId, request: CommandRequest) -> Result<FleetComman
     }
 }
 
+fn track_job(state: &AppState, command: &FleetCommand) {
+    let Some(work) = command.work.clone() else {
+        return;
+    };
+
+    let job = JobRecord {
+        job_id: command.id,
+        unit_id: command.unit_id,
+        number: work.number,
+        calculation: work.calculation,
+        status: JobStatus::Pending,
+        result: None,
+    };
+
+    state
+        .jobs
+        .lock()
+        .expect("job table lock poisoned")
+        .insert(job.job_id, job);
+}
+
 #[instrument(skip(state, submission))]
 async fn submit_job(
     State(state): State<AppState>,
@@ -167,6 +205,7 @@ async fn submit_job(
     Json(submission): Json<WorkSubmission>,
 ) -> Result<StatusCode, ApiError> {
     state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
+    complete_job(&state, unit_id, job_id, &submission)?;
 
     info!(
         unit_id = %unit_id,
@@ -176,6 +215,27 @@ async fn submit_job(
     );
 
     Ok(StatusCode::ACCEPTED)
+}
+
+fn complete_job(
+    state: &AppState,
+    unit_id: UnitId,
+    job_id: uuid::Uuid,
+    submission: &WorkSubmission,
+) -> Result<(), ApiError> {
+    let mut jobs = state.jobs.lock().expect("job table lock poisoned");
+    let job = jobs.get_mut(&job_id).ok_or(ApiError::NotFound)?;
+
+    if job.unit_id != unit_id {
+        return Err(ApiError::BadRequest(
+            "job submission does not match assignment",
+        ));
+    }
+
+    job.status = JobStatus::Completed;
+    job.result = Some(submission.result);
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -224,11 +284,22 @@ const INDEX_HTML: &str = r##"<!doctype html>
     button { border: 1px solid #b8c0cc; background: #fff; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
     button.primary { background: #175cd3; border-color: #175cd3; color: #fff; }
     button:hover { filter: brightness(0.97); }
-    .agents { display: grid; gap: 12px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr); gap: 18px; align-items: start; }
+    @media (max-width: 780px) { .layout { grid-template-columns: 1fr; } }
+    h2 { font-size: 18px; margin: 0 0 12px; letter-spacing: 0; }
+    .panel { min-width: 0; }
+    .agents, .jobs { display: grid; gap: 12px; }
     .agent { background: #fff; border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; }
     .agent-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
     .name { font-weight: 700; }
     .id { color: #667085; font-size: 13px; overflow-wrap: anywhere; }
+    .job { background: #fff; border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; display: grid; gap: 8px; }
+    .job-top { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .job-title { font-weight: 700; }
+    .pill { border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #eef2f7; color: #344054; }
+    .pill.completed { background: #dcfae6; color: #067647; }
+    .meta { color: #667085; font-size: 13px; overflow-wrap: anywhere; }
+    .result { font-weight: 700; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .work { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #edf0f5; margin-top: 8px; }
     input[type="number"] { width: 110px; border: 1px solid #b8c0cc; border-radius: 6px; padding: 8px; }
@@ -244,15 +315,29 @@ const INDEX_HTML: &str = r##"<!doctype html>
       <button id="refresh">Refresh</button>
     </header>
     <p class="status" id="status"></p>
-    <section class="agents" id="agents"></section>
+    <div class="layout">
+      <section class="panel">
+        <h2>Agents</h2>
+        <div class="agents" id="agents"></div>
+      </section>
+      <section class="panel">
+        <h2>Jobs</h2>
+        <div class="jobs" id="jobs"></div>
+      </section>
+    </div>
   </main>
   <script>
     const agentsEl = document.querySelector("#agents");
+    const jobsEl = document.querySelector("#jobs");
     const statusEl = document.querySelector("#status");
 
-    document.querySelector("#refresh").addEventListener("click", loadAgents);
-    loadAgents();
-    setInterval(loadAgents, 5000);
+    document.querySelector("#refresh").addEventListener("click", loadAll);
+    loadAll();
+    setInterval(loadAll, 5000);
+
+    async function loadAll() {
+      await Promise.all([loadAgents(), loadJobs()]);
+    }
 
     async function loadAgents() {
       const agents = await fetchJson("/fleet");
@@ -262,6 +347,16 @@ const INDEX_HTML: &str = r##"<!doctype html>
         return;
       }
       for (const agent of agents) agentsEl.appendChild(renderAgent(agent));
+    }
+
+    async function loadJobs() {
+      const jobs = await fetchJson("/jobs");
+      jobsEl.innerHTML = "";
+      if (jobs.length === 0) {
+        jobsEl.innerHTML = '<div class="empty">No jobs yet.</div>';
+        return;
+      }
+      for (const job of jobs) jobsEl.appendChild(renderJob(job));
     }
 
     function renderAgent(agent) {
@@ -295,6 +390,24 @@ const INDEX_HTML: &str = r##"<!doctype html>
       return el;
     }
 
+    function renderJob(job) {
+      const el = document.createElement("article");
+      const completed = job.status === "completed";
+      el.className = "job";
+      el.innerHTML = `
+        <div class="job-top">
+          <div>
+            <div class="job-title">${job.calculation} ${job.number}</div>
+            <div class="meta">Job ${job.job_id}</div>
+          </div>
+          <span class="pill ${completed ? "completed" : ""}">${job.status}</span>
+        </div>
+        <div class="meta">Agent ${job.unit_id}</div>
+        <div class="result">${completed ? `Result: ${job.result}` : "Waiting for result"}</div>
+      `;
+      return el;
+    }
+
     async function queueCommand(agentId, kind, root) {
       const body = { kind };
       if (kind === "do_work") {
@@ -310,6 +423,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         body: JSON.stringify(body)
       });
       statusEl.textContent = `Queued ${command.kind} for ${agentId}`;
+      await loadJobs();
     }
 
     async function fetchJson(url, options) {

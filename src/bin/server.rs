@@ -19,6 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         registry: Arc::new(InMemoryFleetRegistry::default()),
         command_queues: Arc::new(Mutex::default()),
+        jobs: Arc::new(Mutex::default()),
     };
     let listener = TcpListener::bind(addr).await?;
 

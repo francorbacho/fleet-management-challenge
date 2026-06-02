@@ -122,6 +122,23 @@ pub struct WorkSubmission {
     pub result: f64,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct JobRecord {
+    pub job_id: Uuid,
+    pub unit_id: UnitId,
+    pub number: f64,
+    pub calculation: WorkCalculation,
+    pub status: JobStatus,
+    pub result: Option<f64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Pending,
+    Completed,
+}
+
 pub trait FleetDirectory: Send + Sync {
     fn list_units(&self) -> Vec<FleetUnit>;
     fn get_unit(&self, id: UnitId) -> Option<FleetUnit>;
