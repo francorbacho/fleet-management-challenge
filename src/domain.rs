@@ -54,11 +54,13 @@ pub struct NewFleetUnit {
     pub name: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FleetCommand {
     pub id: Uuid,
     pub unit_id: UnitId,
     pub kind: FleetCommandKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work: Option<WorkAssignment>,
 }
 
 impl FleetCommand {
@@ -67,6 +69,16 @@ impl FleetCommand {
             id: Uuid::new_v4(),
             unit_id,
             kind,
+            work: None,
+        }
+    }
+
+    pub fn do_work(unit_id: UnitId, work: WorkAssignment) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            unit_id,
+            kind: FleetCommandKind::DoWork,
+            work: Some(work),
         }
     }
 }
@@ -77,6 +89,25 @@ pub enum FleetCommandKind {
     Diagnostics,
     Restart,
     DoWork,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct WorkAssignment {
+    pub number: f64,
+    pub calculation: WorkCalculation,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkCalculation {
+    Double,
+    Square,
+    SquareRoot,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct WorkSubmission {
+    pub result: f64,
 }
 
 pub trait FleetDirectory: Send + Sync {

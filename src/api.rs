@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 use tokio::time::{Duration, sleep};
@@ -12,6 +12,7 @@ use tracing::{info, instrument};
 
 use crate::domain::{
     FleetCommand, FleetCommandKind, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError, UnitId,
+    WorkAssignment, WorkCalculation, WorkSubmission,
 };
 
 #[derive(Clone)]
@@ -26,6 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/fleet", get(list_units).post(register_unit))
         .route("/fleet/{unit_id}", get(get_unit))
         .route("/fleet/{unit_id}/commands/next", get(next_command))
+        .route("/fleet/{unit_id}/jobs/{job_id}/submit", post(submit_job))
         .with_state(state)
 }
 
@@ -71,7 +73,8 @@ async fn next_command(
 
     sleep(Duration::from_secs(2)).await;
 
-    let command = FleetCommand::new(unit_id, next_command_kind(&state));
+    let sequence = state.command_sequence.fetch_add(1, Ordering::Relaxed);
+    let command = build_command(unit_id, sequence);
 
     info!(
         unit_id = %unit_id,
@@ -83,11 +86,42 @@ async fn next_command(
     Ok(Json(command))
 }
 
-fn next_command_kind(state: &AppState) -> FleetCommandKind {
-    match state.command_sequence.fetch_add(1, Ordering::Relaxed) % 3 {
-        0 => FleetCommandKind::Diagnostics,
-        1 => FleetCommandKind::Restart,
-        _ => FleetCommandKind::DoWork,
+#[instrument(skip(state, submission))]
+async fn submit_job(
+    State(state): State<AppState>,
+    Path((unit_id, job_id)): Path<(UnitId, uuid::Uuid)>,
+    Json(submission): Json<WorkSubmission>,
+) -> Result<StatusCode, ApiError> {
+    state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
+
+    info!(
+        unit_id = %unit_id,
+        job_id = %job_id,
+        result = submission.result,
+        "received completed job submission"
+    );
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+fn build_command(unit_id: UnitId, sequence: usize) -> FleetCommand {
+    match sequence % 3 {
+        0 => FleetCommand::new(unit_id, FleetCommandKind::Diagnostics),
+        1 => FleetCommand::new(unit_id, FleetCommandKind::Restart),
+        _ => FleetCommand::do_work(unit_id, work_assignment(sequence)),
+    }
+}
+
+fn work_assignment(sequence: usize) -> WorkAssignment {
+    let job_number = (sequence / 4) as f64 + 1.0;
+
+    WorkAssignment {
+        number: job_number * 12.5,
+        calculation: match sequence / 4 % 3 {
+            0 => WorkCalculation::Double,
+            1 => WorkCalculation::Square,
+            _ => WorkCalculation::SquareRoot,
+        },
     }
 }
 

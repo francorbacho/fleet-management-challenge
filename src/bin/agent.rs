@@ -1,4 +1,7 @@
-use fleet_management_challenge::domain::{FleetCommand, FleetCommandKind, FleetUnit, NewFleetUnit};
+use fleet_management_challenge::domain::{
+    FleetCommand, FleetCommandKind, FleetUnit, NewFleetUnit, WorkAssignment, WorkCalculation,
+    WorkSubmission,
+};
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
@@ -36,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         match poll_next_command(&client, &command_url).await {
-            Ok(command) => handle_command(command).await,
+            Ok(command) => handle_command(&client, api_url.trim_end_matches('/'), command).await,
             Err(error) => {
                 warn!(%error, "command poll failed");
                 sleep(Duration::from_secs(3)).await;
@@ -68,7 +71,7 @@ async fn poll_next_command(
         .await
 }
 
-async fn handle_command(command: FleetCommand) {
+async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetCommand) {
     match command.kind {
         FleetCommandKind::Diagnostics => {
             info!(
@@ -85,11 +88,54 @@ async fn handle_command(command: FleetCommand) {
             );
         }
         FleetCommandKind::DoWork => {
+            let Some(ref assignment) = command.work else {
+                warn!(command_id = %command.id, "do_work command missing work assignment");
+                return;
+            };
+            let result = calculate(assignment);
+
             info!(
                 command_id = %command.id,
                 unit_id = %command.unit_id,
-                "performing assigned work"
+                job_id = %command.id,
+                number = assignment.number,
+                calculation = ?assignment.calculation,
+                result = result,
+                "completed assigned work"
             );
+
+            if let Err(error) = submit_work_result(client, api_url, &command, result).await {
+                warn!(%error, command_id = %command.id, "failed to submit work result");
+            }
         }
     }
+}
+
+fn calculate(assignment: &WorkAssignment) -> f64 {
+    match assignment.calculation {
+        WorkCalculation::Double => assignment.number * 2.0,
+        WorkCalculation::Square => assignment.number * assignment.number,
+        WorkCalculation::SquareRoot => assignment.number.sqrt(),
+    }
+}
+
+async fn submit_work_result(
+    client: &reqwest::Client,
+    api_url: &str,
+    command: &FleetCommand,
+    result: f64,
+) -> Result<(), reqwest::Error> {
+    let submit_url = format!(
+        "{}/fleet/{}/jobs/{}/submit",
+        api_url, command.unit_id, command.id
+    );
+
+    client
+        .post(submit_url)
+        .json(&WorkSubmission { result })
+        .send()
+        .await?
+        .error_for_status()?;
+
+    Ok(())
 }
