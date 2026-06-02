@@ -104,6 +104,8 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
                 "completed assigned work"
             );
 
+            sleep(Duration::from_secs(5)).await;
+
             if let Err(error) = submit_work_result(client, api_url, &command, result).await {
                 warn!(%error, command_id = %command.id, "failed to submit work result");
             }
