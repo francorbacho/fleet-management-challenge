@@ -55,26 +55,28 @@ pub struct NewFleetUnit {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct FleetEvent {
+pub struct FleetCommand {
     pub id: Uuid,
     pub unit_id: UnitId,
-    pub kind: FleetEventKind,
+    pub kind: FleetCommandKind,
 }
 
-impl FleetEvent {
-    pub fn diagnostics(unit_id: UnitId) -> Self {
+impl FleetCommand {
+    pub fn new(unit_id: UnitId, kind: FleetCommandKind) -> Self {
         Self {
             id: Uuid::new_v4(),
             unit_id,
-            kind: FleetEventKind::Diagnostics,
+            kind,
         }
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FleetEventKind {
+pub enum FleetCommandKind {
     Diagnostics,
+    Restart,
+    DoWork,
 }
 
 pub trait FleetDirectory: Send + Sync {

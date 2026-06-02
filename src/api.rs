@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -9,11 +10,14 @@ use serde::Serialize;
 use tokio::time::{Duration, sleep};
 use tracing::{info, instrument};
 
-use crate::domain::{FleetEvent, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError, UnitId};
+use crate::domain::{
+    FleetCommand, FleetCommandKind, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError, UnitId,
+};
 
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Arc<dyn FleetRegistry>,
+    pub command_sequence: Arc<AtomicUsize>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -21,7 +25,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/fleet", get(list_units).post(register_unit))
         .route("/fleet/{unit_id}", get(get_unit))
-        .route("/fleet/{unit_id}/events/next", get(next_event))
+        .route("/fleet/{unit_id}/commands/next", get(next_command))
         .with_state(state)
 }
 
@@ -59,24 +63,32 @@ async fn get_unit(
 }
 
 #[instrument(skip(state))]
-async fn next_event(
+async fn next_command(
     State(state): State<AppState>,
     Path(unit_id): Path<UnitId>,
-) -> Result<Json<FleetEvent>, ApiError> {
+) -> Result<Json<FleetCommand>, ApiError> {
     state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
 
     sleep(Duration::from_secs(2)).await;
 
-    let event = FleetEvent::diagnostics(unit_id);
+    let command = FleetCommand::new(unit_id, next_command_kind(&state));
 
     info!(
         unit_id = %unit_id,
-        event_id = %event.id,
-        event_kind = ?event.kind,
-        "delivered fleet event"
+        command_id = %command.id,
+        command_kind = ?command.kind,
+        "delivered fleet command"
     );
 
-    Ok(Json(event))
+    Ok(Json(command))
+}
+
+fn next_command_kind(state: &AppState) -> FleetCommandKind {
+    match state.command_sequence.fetch_add(1, Ordering::Relaxed) % 3 {
+        0 => FleetCommandKind::Diagnostics,
+        1 => FleetCommandKind::Restart,
+        _ => FleetCommandKind::DoWork,
+    }
 }
 
 #[derive(Debug)]

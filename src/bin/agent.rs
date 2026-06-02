@@ -1,4 +1,4 @@
-use fleet_management_challenge::domain::{FleetEvent, FleetEventKind, FleetUnit, NewFleetUnit};
+use fleet_management_challenge::domain::{FleetCommand, FleetCommandKind, FleetUnit, NewFleetUnit};
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
@@ -28,17 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "agent registered"
     );
 
-    let event_url = format!(
-        "{}/fleet/{}/events/next",
+    let command_url = format!(
+        "{}/fleet/{}/commands/next",
         api_url.trim_end_matches('/'),
         registered_unit.id
     );
 
     loop {
-        match poll_next_event(&client, &event_url).await {
-            Ok(event) => handle_event(event).await,
+        match poll_next_command(&client, &command_url).await {
+            Ok(command) => handle_command(command).await,
             Err(error) => {
-                warn!(%error, "event poll failed");
+                warn!(%error, "command poll failed");
                 sleep(Duration::from_secs(3)).await;
             }
         }
@@ -55,26 +55,40 @@ fn init_tracing() {
     fmt().with_env_filter(filter).with_target(false).init();
 }
 
-async fn poll_next_event(
+async fn poll_next_command(
     client: &reqwest::Client,
-    event_url: &str,
-) -> Result<FleetEvent, reqwest::Error> {
+    command_url: &str,
+) -> Result<FleetCommand, reqwest::Error> {
     client
-        .get(event_url)
+        .get(command_url)
         .send()
         .await?
         .error_for_status()?
-        .json::<FleetEvent>()
+        .json::<FleetCommand>()
         .await
 }
 
-async fn handle_event(event: FleetEvent) {
-    match event.kind {
-        FleetEventKind::Diagnostics => {
+async fn handle_command(command: FleetCommand) {
+    match command.kind {
+        FleetCommandKind::Diagnostics => {
             info!(
-                event_id = %event.id,
-                unit_id = %event.unit_id,
-                "received diagnostics event"
+                command_id = %command.id,
+                unit_id = %command.unit_id,
+                "running diagnostics"
+            );
+        }
+        FleetCommandKind::Restart => {
+            info!(
+                command_id = %command.id,
+                unit_id = %command.unit_id,
+                "simulating restart"
+            );
+        }
+        FleetCommandKind::DoWork => {
+            info!(
+                command_id = %command.id,
+                unit_id = %command.unit_id,
+                "performing assigned work"
             );
         }
     }

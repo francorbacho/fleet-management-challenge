@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 use fleet_management_challenge::api::{AppState, router};
 use fleet_management_challenge::registry::InMemoryFleetRegistry;
@@ -17,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState {
         registry: Arc::new(InMemoryFleetRegistry::default()),
+        command_sequence: Arc::new(AtomicUsize::default()),
     };
     let listener = TcpListener::bind(addr).await?;
 
