@@ -3,9 +3,11 @@ use axum::routing::{get, post};
 
 mod error;
 mod handlers;
+mod registry;
 mod state;
 mod web;
 
+pub use registry::InMemoryFleetRegistry;
 pub use state::AppState;
 
 use handlers::{

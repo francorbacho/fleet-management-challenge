@@ -2,8 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use fleet_management_challenge::api::{AppState, router};
-use fleet_management_challenge::registry::InMemoryFleetRegistry;
+use fleet_management_challenge::server::{AppState, InMemoryFleetRegistry, router};
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};

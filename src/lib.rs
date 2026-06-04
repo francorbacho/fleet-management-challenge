@@ -1,3 +1,3 @@
-pub mod api;
+pub mod agent;
 pub mod domain;
-pub mod registry;
+pub mod server;

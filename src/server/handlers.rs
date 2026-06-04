@@ -10,8 +10,9 @@ use tracing::{info, warn};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
-    AgentId, CommandRequest, ComputeAssignment, FleetCommand, FleetCommandKind, JobSubmission,
-    FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_job_id, parse_job_id,
+    AgentId, CommandRequest, ComputeAssignment, FleetCommand, FleetCommandKind,
+    FleetUnit, JobRecord, JobStatus, JobSubmission, NewFleetUnit, display_agent_id, display_job_id,
+    parse_job_id,
 };
 
 pub(super) async fn health() -> StatusCode {
