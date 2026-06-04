@@ -85,31 +85,44 @@ const INDEX_HTML: &str = r##"<!doctype html>
 
     async function loadAgents() {
       const agents = await fetchJson("/fleet");
-      const controls = saveAgentControls();
-      agentsEl.replaceChildren();
       if (agents.length === 0) {
-        agentsEl.innerHTML = '<tr><td colspan="4">No agents connected.</td></tr>';
+        agentsEl.replaceChildren(emptyRow(4, "No agents connected."));
         return;
       }
-      for (const agent of agents) agentsEl.appendChild(renderAgent(agent, controls.get(String(agent.id))));
+
+      agentsEl.querySelectorAll("tr:not([data-agent-id])").forEach(row => row.remove());
+      const seen = new Set();
+      for (const agent of agents) {
+        const id = String(agent.id);
+        seen.add(id);
+        const row = agentsEl.querySelector(`tr[data-agent-id="${id}"]`);
+        if (row) {
+          row.querySelector("[data-agent-name]").textContent = agent.name;
+        } else {
+          agentsEl.appendChild(renderAgent(agent));
+        }
+      }
+      agentsEl.querySelectorAll("tr[data-agent-id]").forEach(row => {
+        if (!seen.has(row.dataset.agentId)) row.remove();
+      });
     }
 
     async function loadJobs() {
       const jobs = await fetchJson("/jobs");
       jobsEl.replaceChildren();
       if (jobs.length === 0) {
-        jobsEl.innerHTML = '<tr><td colspan="6">No jobs yet.</td></tr>';
+        jobsEl.appendChild(emptyRow(6, "No jobs yet."));
         return;
       }
       for (const job of jobs) jobsEl.appendChild(renderJob(job));
     }
 
-    function renderAgent(agent, controls) {
+    function renderAgent(agent) {
       const row = document.createElement("tr");
       row.dataset.agentId = String(agent.id);
       row.innerHTML = `
         <td class="id">${formatAgentId(agent.id)}</td>
-        <td>${escapeHtml(agent.name)}</td>
+        <td data-agent-name></td>
         <td>
           <button data-kind="diagnostics">Diagnostics</button>
           <button data-kind="restart">Restart</button>
@@ -124,25 +137,17 @@ const INDEX_HTML: &str = r##"<!doctype html>
           <button data-kind="compute">Compute</button>
         </td>
       `;
-      if (controls) {
-        row.querySelector("input").value = controls.number;
-        row.querySelector("select").value = controls.calculation;
-      }
+      row.querySelector("[data-agent-name]").textContent = agent.name;
       row.querySelectorAll("button[data-kind]").forEach(button => {
         button.addEventListener("click", () => queueCommand(agent.id, button.dataset.kind, row));
       });
       return row;
     }
 
-    function saveAgentControls() {
-      const controls = new Map();
-      agentsEl.querySelectorAll("tr[data-agent-id]").forEach(row => {
-        controls.set(row.dataset.agentId, {
-          number: row.querySelector("input").value,
-          calculation: row.querySelector("select").value
-        });
-      });
-      return controls;
+    function emptyRow(colspan, message) {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td colspan="${colspan}">${message}</td>`;
+      return row;
     }
 
     function renderJob(job) {
