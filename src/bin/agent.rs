@@ -1,7 +1,6 @@
 use fleet_management_challenge::agent::ApiClient;
 use fleet_management_challenge::domain::{
-    ComputeAssignment, ComputeCalculation, FleetCommand, FleetCommandKind, FleetUnit,
-    display_agent_id, display_job_id,
+    CommandRequest, FleetCommand, FleetUnit, display_agent_id, display_job_id,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -71,8 +70,8 @@ async fn run_session(api: &ApiClient, agent: FleetUnit) {
 
 /// Returns `true` if the agent should restart (re-register).
 async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
-    match command.kind {
-        FleetCommandKind::Diagnostics => {
+    match command.request {
+        CommandRequest::Diagnostics => {
             let diagnostics = collect_diagnostics();
             info!(
                 job_id = %display_job_id(command.job_id),
@@ -94,7 +93,7 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
 
             false
         }
-        FleetCommandKind::Restart => {
+        CommandRequest::Restart => {
             info!(
                 job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
@@ -102,21 +101,13 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
             );
             true
         }
-        FleetCommandKind::Compute => {
-            let Some(ref assignment) = command.compute else {
-                warn!(
-                    job_id = %display_job_id(command.job_id),
-                    "compute command missing assignment"
-                );
-                return false;
-            };
-            let result = calculate(assignment);
+        CommandRequest::Double(number) => {
+            let result = number * 2.0;
 
             info!(
                 job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
-                number = assignment.number,
-                calculation = ?assignment.calculation,
+                number,
                 result,
                 "completed assigned compute job"
             );
@@ -135,14 +126,6 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
             }
             false
         }
-    }
-}
-
-fn calculate(assignment: &ComputeAssignment) -> f64 {
-    match assignment.calculation {
-        ComputeCalculation::Double => assignment.number * 2.0,
-        ComputeCalculation::Square => assignment.number * assignment.number,
-        ComputeCalculation::SquareRoot => assignment.number.sqrt(),
     }
 }
 

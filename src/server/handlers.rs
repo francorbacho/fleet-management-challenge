@@ -10,9 +10,8 @@ use tracing::{info, warn};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
-    AgentId, CommandRequest, ComputeAssignment, FleetCommand, FleetCommandKind, FleetUnit,
-    JobRecord, JobStatus, JobSubmission, NewFleetUnit, display_agent_id, display_job_id,
-    parse_job_id,
+    AgentId, CommandRequest, FleetCommand, FleetUnit, JobRecord, JobStatus, JobSubmission,
+    NewFleetUnit, display_agent_id, display_job_id, parse_job_id,
 };
 
 pub(super) async fn health() -> StatusCode {
@@ -67,7 +66,7 @@ pub(super) async fn queue_command(
     info!(
         agent_id = %display_agent_id(agent_id),
         job_id = %display_job_id(command.job_id),
-        kind = ?command.kind,
+        request = ?command.request,
         "queued command"
     );
 
@@ -111,7 +110,7 @@ pub(super) async fn next_command(
             info!(
                 agent_id = %display_agent_id(agent_id),
                 job_id = %display_job_id(command.job_id),
-                kind = ?command.kind,
+                request = ?command.request,
                 "delivered command"
             );
 
@@ -162,37 +161,18 @@ fn pop_next_command(state: &AppState, agent_id: AgentId) -> Option<FleetCommand>
 }
 
 fn build_command(agent_id: AgentId, request: CommandRequest) -> Result<FleetCommand, ApiError> {
-    match request.kind {
-        FleetCommandKind::Diagnostics => {
-            Ok(FleetCommand::new(agent_id, FleetCommandKind::Diagnostics))
-        }
-        FleetCommandKind::Restart => Ok(FleetCommand::new(agent_id, FleetCommandKind::Restart)),
-        FleetCommandKind::Compute => {
-            let compute = request.compute.ok_or(ApiError::BadRequest(
-                "compute commands require a compute payload",
-            ))?;
-
-            Ok(FleetCommand::compute(
-                agent_id,
-                ComputeAssignment {
-                    number: compute.number,
-                    calculation: compute.calculation,
-                },
-            ))
-        }
+    match request {
+        CommandRequest::Diagnostics => Ok(FleetCommand::new(agent_id, CommandRequest::Diagnostics)),
+        CommandRequest::Restart => Ok(FleetCommand::new(agent_id, CommandRequest::Restart)),
+        CommandRequest::Double(number) => Ok(FleetCommand::double(agent_id, number)),
     }
 }
 
 fn track_job(state: &AppState, command: &FleetCommand) {
-    let Some(compute) = command.compute.clone() else {
-        return;
-    };
-
     let job = JobRecord {
         job_id: command.job_id,
         agent_id: command.agent_id,
-        number: compute.number,
-        calculation: compute.calculation,
+        command: command.request.clone(),
         status: JobStatus::Pending,
         result: None,
     };
@@ -205,10 +185,6 @@ fn track_job(state: &AppState, command: &FleetCommand) {
 }
 
 fn accept_job(state: &AppState, command: &FleetCommand) {
-    if command.compute.is_none() {
-        return;
-    }
-
     let mut jobs = state.jobs.lock().expect("job table lock poisoned");
     if let Some(job) = jobs.iter_mut().find(|job| job.job_id == command.job_id) {
         job.status = JobStatus::Accepted;

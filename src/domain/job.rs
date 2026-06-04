@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{AgentId, ComputeCalculation};
+use super::{AgentId, CommandRequest};
 
 mod hex_job_id {
     use serde::{self, Deserialize, Deserializer, Serializer};
@@ -20,8 +20,7 @@ pub struct JobRecord {
     #[serde(with = "hex_job_id")]
     pub job_id: u64,
     pub agent_id: AgentId,
-    pub number: f64,
-    pub calculation: ComputeCalculation,
+    pub command: CommandRequest,
     pub status: JobStatus,
     pub result: Option<String>,
 }
