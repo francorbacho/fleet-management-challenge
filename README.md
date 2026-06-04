@@ -16,6 +16,9 @@ cargo run --bin server
 
 # In another terminal, start an agent
 cargo run --bin agent
+
+# Alternatively, you can run a benchmark
+cargo run --bin bench
 ```
 
 Then open http://127.0.0.1:3000 in your browser.
@@ -29,7 +32,6 @@ Then open http://127.0.0.1:3000 in your browser.
 | `FLEET_AGENT_NAME` | `fleet-agent` | Agent display name |
 | `BENCH_AGENTS` | `100` | Number of benchmark agents |
 | `BENCH_DURATION` | `30` | Benchmark duration in seconds |
-| `RUST_LOG` | `info` | Log level filter |
 
 ## API Endpoints
 
@@ -47,20 +49,15 @@ Then open http://127.0.0.1:3000 in your browser.
 
 ## Commands
 
-- **Diagnostics** — Agent reports system info (PID, OS, architecture, CPU count)
-- **Restart** — Agent re-registers with the server under a new ID
-- **Compute** — Agent performs a calculation (double, square, square root) and submits the result
+- **Double**: Agent performs a calculation (doubles a number) and submits the result
+- **Ping**: Grabs a timestamp, sends a ping, and calculates the time it takes to come back
+- **Diagnostics**: Agent reports system info (PID, OS, architecture, CPU count)
+- **Restart**: Agent re-registers with the server under a new ID
+
 
 ## IDs
 
-Agent and job IDs are hex-encoded 48-bit random values (e.g., `a#3f2a1b`, `j#c9d4e5`).
-
-## Agent Lifecycle
-
-1. Agent registers with the server and receives an ID
-2. Agent long-polls `/commands/next` (30s timeout, acts as heartbeat)
-3. Server marks agents as **disconnected** if no heartbeat received within 45 seconds
-4. On connection failure, agent automatically retries and re-registers
+Agent and job IDs are hex-encoded 48-bit random values (e.g., `a#456362dbc8b3`, `j#25f9e2e48afe`).
 
 ## Docker
 
