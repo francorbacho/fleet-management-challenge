@@ -50,7 +50,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
             <th>Name</th>
             <th>Status</th>
             <th>Command</th>
-            <th>Compute</th>
+            <th>Double</th>
           </tr>
         </thead>
         <tbody id="agents"></tbody>
@@ -64,8 +64,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
           <tr>
             <th>Job id</th>
             <th>Agent id</th>
-            <th>Calculation</th>
-            <th>Number</th>
+            <th>Command</th>
             <th>State</th>
             <th>Result</th>
           </tr>
@@ -117,7 +116,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
       const jobs = await fetchJson("/jobs");
       jobsEl.replaceChildren();
       if (jobs.length === 0) {
-        jobsEl.appendChild(emptyRow(6, "No jobs yet."));
+        jobsEl.appendChild(emptyRow(5, "No jobs yet."));
         return;
       }
       for (const job of jobs) jobsEl.appendChild(renderJob(job));
@@ -135,13 +134,8 @@ const INDEX_HTML: &str = r##"<!doctype html>
           <button data-kind="restart">Restart</button>
         </td>
         <td>
-          <input type="number" step="any" value="12.5" aria-label="Compute number">
-          <select aria-label="Calculation">
-            <option value="double">Double</option>
-            <option value="square">Square</option>
-            <option value="square_root">Square root</option>
-          </select>
-          <button data-kind="compute">Compute</button>
+          <input type="number" step="any" value="12.5" aria-label="Double number">
+          <button data-kind="double">Double</button>
         </td>
       `;
       row.querySelector("[data-agent-name]").textContent = agent.name;
@@ -164,12 +158,17 @@ const INDEX_HTML: &str = r##"<!doctype html>
       row.innerHTML = `
         <td class="id">${formatJobId(job.job_id)}</td>
         <td class="id">${formatAgentId(job.agent_id)}</td>
-        <td>${job.calculation}</td>
-        <td>${job.number}</td>
+        <td>${formatCommand(job.command)}</td>
         <td>${job.status}</td>
         <td>${renderJobResult(job)}</td>
       `;
       return row;
+    }
+
+    function formatCommand(command) {
+      if (typeof command === "string") return command;
+      if (command.double !== undefined) return `double(${command.double})`;
+      return JSON.stringify(command);
     }
 
     function renderJobResult(job) {
@@ -180,20 +179,19 @@ const INDEX_HTML: &str = r##"<!doctype html>
     }
 
     async function queueCommand(agentId, kind, row) {
-      const body = { kind };
-      if (kind === "compute") {
-        body.compute = {
-          number: Number(row.querySelector("input").value),
-          calculation: row.querySelector("select").value
-        };
+      let request;
+      if (kind === "double") {
+        request = { double: Number(row.querySelector("input").value) };
+      } else {
+        request = kind;
       }
 
       const command = await fetchJson(`/fleet/${agentId}/commands`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify(request)
       });
-      statusEl.textContent = `Queued ${command.kind} for ${formatAgentId(agentId)}`;
+      statusEl.textContent = `Queued ${formatCommand(command.request)} for ${formatAgentId(agentId)}`;
       await loadJobs();
     }
 
