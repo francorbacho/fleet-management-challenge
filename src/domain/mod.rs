@@ -4,7 +4,7 @@ mod id;
 mod job;
 mod registry;
 
-pub use agent::{FleetUnit, NewFleetUnit};
+pub use agent::{AgentStatus, FleetUnit, NewFleetUnit};
 pub use command::{
     CommandRequest, ComputeAssignment, ComputeCalculation, ComputeRequest, ComputeSubmission,
     FleetCommand, FleetCommandKind,

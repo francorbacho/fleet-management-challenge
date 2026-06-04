@@ -26,6 +26,10 @@ const INDEX_HTML: &str = r##"<!doctype html>
     button { cursor: pointer; }
     .status { min-height: 24px; color: #555; }
     .id { font-family: ui-monospace, SFMono-Regular, monospace; }
+    tr.disconnected { opacity: 0.5; }
+    .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .status-connected { background: #e8f7ea; color: #2d6a30; }
+    .status-disconnected { background: #fdecec; color: #a33; }
     @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -44,6 +48,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
           <tr>
             <th>Agent id</th>
             <th>Name</th>
+            <th>Status</th>
             <th>Command</th>
             <th>Compute</th>
           </tr>
@@ -86,7 +91,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
     async function loadAgents() {
       const agents = await fetchJson("/fleet");
       if (agents.length === 0) {
-        agentsEl.replaceChildren(emptyRow(4, "No agents connected."));
+        agentsEl.replaceChildren(emptyRow(5, "No agents connected."));
         return;
       }
 
@@ -98,6 +103,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         const row = agentsEl.querySelector(`tr[data-agent-id="${id}"]`);
         if (row) {
           row.querySelector("[data-agent-name]").textContent = agent.name;
+          updateAgentStatus(row, agent.status);
         } else {
           agentsEl.appendChild(renderAgent(agent));
         }
@@ -123,6 +129,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
       row.innerHTML = `
         <td class="id">${formatAgentId(agent.id)}</td>
         <td data-agent-name></td>
+        <td data-agent-status></td>
         <td>
           <button data-kind="diagnostics">Diagnostics</button>
           <button data-kind="restart">Restart</button>
@@ -138,6 +145,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         </td>
       `;
       row.querySelector("[data-agent-name]").textContent = agent.name;
+      updateAgentStatus(row, agent.status);
       row.querySelectorAll("button[data-kind]").forEach(button => {
         button.addEventListener("click", () => queueCommand(agent.id, button.dataset.kind, row));
       });
@@ -211,6 +219,13 @@ const INDEX_HTML: &str = r##"<!doctype html>
 
     function formatId(id) {
       return String(id);
+    }
+
+    function updateAgentStatus(row, status) {
+      const cell = row.querySelector("[data-agent-status]");
+      const isConnected = status === "connected";
+      cell.innerHTML = `<span class="status-badge ${isConnected ? 'status-connected' : 'status-disconnected'}">${status}</span>`;
+      row.classList.toggle("disconnected", !isConnected);
     }
   </script>
 </body>

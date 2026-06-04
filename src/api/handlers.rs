@@ -5,7 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tokio::time::{Duration, sleep};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::error::ApiError;
 use super::state::AppState;
@@ -93,6 +93,12 @@ pub(super) async fn next_command(
         .get_unit(agent_id)
         .ok_or(ApiError::NotFound)?;
 
+    state.registry.set_connected(agent_id);
+    let guard = PollGuard {
+        state: state.clone(),
+        agent_id,
+    };
+
     let mut waited = Duration::ZERO;
     let interval = Duration::from_millis(250);
     let timeout = Duration::from_secs(30);
@@ -108,6 +114,8 @@ pub(super) async fn next_command(
                 "delivered command"
             );
 
+            // Agent received a command and will poll again — keep it connected
+            guard.disarm();
             return Ok(Json(command).into_response());
         }
 
@@ -115,7 +123,33 @@ pub(super) async fn next_command(
         waited += interval;
     }
 
+    // Normal timeout — agent will immediately re-poll, keep it connected
+    guard.disarm();
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Marks an agent as disconnected when dropped without being disarmed.
+/// If the handler future is cancelled (client disconnected), the drop
+/// runs and marks the agent offline instantly.
+struct PollGuard {
+    state: AppState,
+    agent_id: AgentId,
+}
+
+impl PollGuard {
+    fn disarm(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for PollGuard {
+    fn drop(&mut self) {
+        warn!(
+            agent_id = %display_agent_id(self.agent_id),
+            "agent disconnected"
+        );
+        self.state.registry.mark_disconnected(self.agent_id);
+    }
 }
 
 fn pop_next_command(state: &AppState, agent_id: AgentId) -> Option<FleetCommand> {

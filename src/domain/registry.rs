@@ -7,6 +7,8 @@ pub trait FleetDirectory: Send + Sync {
 
 pub trait FleetRegistry: FleetDirectory {
     fn register_unit(&self, input: NewFleetUnit) -> Result<FleetUnit, RegistryError>;
+    fn set_connected(&self, id: AgentId);
+    fn mark_disconnected(&self, id: AgentId);
 }
 
 #[derive(Debug, thiserror::Error)]

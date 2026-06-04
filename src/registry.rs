@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use crate::domain::{
-    AgentId, FleetDirectory, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError,
+    AgentId, AgentStatus, FleetDirectory, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError,
 };
 
 #[derive(Default)]
@@ -29,5 +29,19 @@ impl FleetRegistry for InMemoryFleetRegistry {
         units.insert(unit.id, unit.clone());
 
         Ok(unit)
+    }
+
+    fn set_connected(&self, id: AgentId) {
+        let mut units = self.units.write().expect("fleet registry lock poisoned");
+        if let Some(unit) = units.get_mut(&id) {
+            unit.status = AgentStatus::Connected;
+        }
+    }
+
+    fn mark_disconnected(&self, id: AgentId) {
+        let mut units = self.units.write().expect("fleet registry lock poisoned");
+        if let Some(unit) = units.get_mut(&id) {
+            unit.status = AgentStatus::Disconnected;
+        }
     }
 }
