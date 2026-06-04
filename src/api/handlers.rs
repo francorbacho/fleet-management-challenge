@@ -11,7 +11,7 @@ use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
     AgentId, CommandRequest, ComputeAssignment, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_job_id,
+    FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_job_id, parse_job_id,
 };
 
 pub(super) async fn health() -> StatusCode {
@@ -182,13 +182,14 @@ fn accept_job(state: &AppState, command: &FleetCommand) {
 
 pub(super) async fn submit_job(
     State(state): State<AppState>,
-    Path((agent_id, job_id)): Path<(AgentId, u64)>,
+    Path((agent_id, job_id_str)): Path<(AgentId, String)>,
     Json(submission): Json<ComputeSubmission>,
 ) -> Result<StatusCode, ApiError> {
     state
         .registry
         .get_unit(agent_id)
         .ok_or(ApiError::NotFound)?;
+    let job_id = parse_job_id(&job_id_str).map_err(|_| ApiError::BadRequest("invalid job id"))?;
     complete_job(&state, agent_id, job_id, &submission)?;
 
     info!(

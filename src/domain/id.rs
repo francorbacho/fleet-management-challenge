@@ -1,14 +1,13 @@
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub(crate) fn random_id() -> u64 {
-    rand::random::<u64>() % 1_000_000_000_000
+    rand::random::<u64>() % 0xFFFF_FFFF_FFFF
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct AgentId(u64);
 
 impl AgentId {
@@ -25,7 +24,7 @@ impl Default for AgentId {
 
 impl fmt::Display for AgentId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+        write!(formatter, "{:x}", self.0)
     }
 }
 
@@ -33,15 +32,40 @@ impl FromStr for AgentId {
     type Err = std::num::ParseIntError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(Self(value.parse()?))
+        Ok(Self(u64::from_str_radix(value, 16)?))
     }
+}
+
+impl Serialize for AgentId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{:x}", self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        u64::from_str_radix(&s, 16)
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+pub type JobId = u64;
+
+pub fn format_job_id(id: JobId) -> String {
+    format!("{:x}", id)
+}
+
+pub fn parse_job_id(s: &str) -> Result<JobId, std::num::ParseIntError> {
+    u64::from_str_radix(s, 16)
 }
 
 pub struct AgentIdDisplay(AgentId);
 
 impl fmt::Display for AgentIdDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "a#{}", self.0.0)
+        write!(formatter, "a#{:x}", self.0 .0)
     }
 }
 
@@ -49,7 +73,7 @@ pub struct JobIdDisplay(u64);
 
 impl fmt::Display for JobIdDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "j#{}", self.0)
+        write!(formatter, "j#{:x}", self.0)
     }
 }
 

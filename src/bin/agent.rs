@@ -1,6 +1,6 @@
 use fleet_management_challenge::domain::{
     ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, NewFleetUnit, display_agent_id, display_job_id,
+    FleetUnit, NewFleetUnit, display_agent_id, display_job_id, format_job_id,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -138,7 +138,7 @@ async fn submit_compute_result(
 ) -> Result<(), reqwest::Error> {
     let submit_url = format!(
         "{}/fleet/{}/jobs/{}/submit",
-        api_url, command.agent_id, command.job_id
+        api_url, command.agent_id, format_job_id(command.job_id)
     );
 
     client

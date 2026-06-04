@@ -10,6 +10,6 @@ pub use command::{
     FleetCommand, FleetCommandKind,
 };
 pub(crate) use id::random_id;
-pub use id::{AgentId, display_agent_id, display_job_id};
+pub use id::{AgentId, JobId, display_agent_id, display_job_id, format_job_id, parse_job_id};
 pub use job::{JobRecord, JobStatus};
 pub use registry::{FleetDirectory, FleetRegistry, RegistryError};

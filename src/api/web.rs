@@ -210,7 +210,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
     }
 
     function formatId(id) {
-      return Math.trunc(Number(id)).toString();
+      return String(id);
     }
   </script>
 </body>
