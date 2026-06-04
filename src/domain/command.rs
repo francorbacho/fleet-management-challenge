@@ -46,6 +46,7 @@ impl FleetCommand {
 pub enum CommandRequest {
     Double(f64),
     Diagnostics,
+    Ping,
     Restart,
     Exit,
 }

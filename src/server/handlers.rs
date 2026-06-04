@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -164,6 +165,7 @@ fn build_command(agent_id: AgentId, request: CommandRequest) -> Result<FleetComm
     match request {
         CommandRequest::Double(number) => Ok(FleetCommand::double(agent_id, number)),
         CommandRequest::Diagnostics => Ok(FleetCommand::new(agent_id, CommandRequest::Diagnostics)),
+        CommandRequest::Ping => Ok(FleetCommand::new(agent_id, CommandRequest::Ping)),
         CommandRequest::Restart => Ok(FleetCommand::new(agent_id, CommandRequest::Restart)),
         CommandRequest::Exit => Ok(FleetCommand::new(agent_id, CommandRequest::Exit)),
     }
@@ -176,6 +178,7 @@ fn track_job(state: &AppState, command: &FleetCommand) {
         command: command.request.clone(),
         status: JobStatus::Pending,
         result: None,
+        queued_at: Some(Instant::now()),
     };
 
     state
@@ -233,7 +236,12 @@ fn complete_job(
     }
 
     job.status = JobStatus::Succeed;
-    job.result = Some(submission.result.clone());
+    if job.command == CommandRequest::Ping {
+        let elapsed = job.queued_at.map(|t| t.elapsed().as_millis()).unwrap_or(0);
+        job.result = Some(format!("{}ms", elapsed));
+    } else {
+        job.result = Some(submission.result.clone());
+    }
 
     Ok(())
 }

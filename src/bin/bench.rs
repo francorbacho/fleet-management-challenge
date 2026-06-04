@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
-
-use fleet_management_challenge::domain::{FleetUnit, NewFleetUnit};
-use tokio::time::{Duration, sleep};
-use tracing::info;
+use fleet_management_challenge::domain::{
+    CommandRequest, FleetCommand, FleetUnit, JobSubmission, NewFleetUnit, format_job_id,
+};
+use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, fmt};
+
+const AGENT_COUNT: usize = 50;
+const PINGS_PER_AGENT: usize = 3;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,70 +13,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let api_url =
         std::env::var("FLEET_API_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".to_owned());
-    let agent_count: usize = std::env::var("BENCH_AGENTS")
-        .unwrap_or_else(|_| "100".to_owned())
-        .parse()?;
-    let duration_secs: u64 = std::env::var("BENCH_DURATION")
-        .unwrap_or_else(|_| "30".to_owned())
-        .parse()?;
-
-    info!(agents = agent_count, duration_secs, "starting benchmark");
-
-    let registered = Arc::new(AtomicU64::new(0));
-    let poll_count = Arc::new(AtomicU64::new(0));
-    let poll_errors = Arc::new(AtomicU64::new(0));
-
-    let start = Instant::now();
+    let base = api_url.trim_end_matches('/').to_owned();
     let client = reqwest::Client::new();
-    let mut handles = Vec::with_capacity(agent_count);
 
-    for i in 0..agent_count {
-        let api_url = api_url.clone();
+    // Check server is up.
+    match client.get(format!("{}/health", base)).send().await {
+        Ok(_) => info!("server is reachable"),
+        Err(e) => {
+            error!(%e, "server is not reachable at {}", base);
+            return Err(e.into());
+        }
+    }
+
+    info!(agents = AGENT_COUNT, pings = PINGS_PER_AGENT, "starting ping benchmark");
+
+    let mut handles = Vec::with_capacity(AGENT_COUNT);
+
+    for i in 0..AGENT_COUNT {
         let client = client.clone();
-        let registered = registered.clone();
-        let poll_count = poll_count.clone();
-        let poll_errors = poll_errors.clone();
+        let base = base.clone();
 
         handles.push(tokio::spawn(async move {
-            let agent_name = format!("bench-agent-{}", i);
-            let registration_url = format!("{}/fleet", api_url.trim_end_matches('/'));
-
-            let agent: FleetUnit = match client
-                .post(&registration_url)
-                .json(&NewFleetUnit { name: agent_name })
-                .send()
-                .await
-            {
-                Ok(resp) => match resp.error_for_status() {
-                    Ok(resp) => match resp.json().await {
-                        Ok(a) => a,
-                        Err(_) => return,
-                    },
-                    Err(_) => return,
-                },
-                Err(_) => return,
-            };
-
-            registered.fetch_add(1, Ordering::Relaxed);
-
-            let command_url = format!(
-                "{}/fleet/{}/commands/next",
-                api_url.trim_end_matches('/'),
-                agent.id
-            );
-
-            let deadline = Instant::now() + Duration::from_secs(duration_secs);
-            while Instant::now() < deadline {
-                match client.get(&command_url).send().await {
-                    Ok(_) => {
-                        poll_count.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(_) => {
-                        poll_errors.fetch_add(1, Ordering::Relaxed);
-                        sleep(Duration::from_millis(500)).await;
-                    }
-                }
-            }
+            run_agent(&client, &base, i).await;
         }));
     }
 
@@ -84,21 +42,75 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = handle.await;
     }
 
-    let elapsed = start.elapsed();
-    let total_registered = registered.load(Ordering::Relaxed);
-    let total_polls = poll_count.load(Ordering::Relaxed);
-    let total_errors = poll_errors.load(Ordering::Relaxed);
-
-    info!(
-        agents_registered = total_registered,
-        total_polls,
-        total_errors,
-        elapsed_secs = elapsed.as_secs_f64(),
-        polls_per_sec = total_polls as f64 / elapsed.as_secs_f64(),
-        "benchmark complete"
-    );
-
+    info!("benchmark complete");
     Ok(())
+}
+
+async fn run_agent(client: &reqwest::Client, base: &str, index: usize) {
+    let name = format!("bench-agent-{}", index);
+
+    // Register.
+    let agent: FleetUnit = match client
+        .post(format!("{}/fleet", base))
+        .json(&NewFleetUnit { name: name.clone() })
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(r) => match r.json().await {
+            Ok(a) => a,
+            Err(e) => { error!(%e, agent = %name, "register parse failed"); return; }
+        },
+        Err(e) => { error!(%e, agent = %name, "register failed"); return; }
+    };
+
+    for ping_num in 0..PINGS_PER_AGENT {
+        // Queue a ping.
+        let cmd: FleetCommand = match client
+            .post(format!("{}/fleet/{}/commands", base, agent.id))
+            .json(&CommandRequest::Ping)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+        {
+            Ok(r) => match r.json().await {
+                Ok(c) => c,
+                Err(e) => { error!(%e, agent = %name, ping_num, "queue parse failed"); continue; }
+            },
+            Err(e) => { error!(%e, agent = %name, ping_num, "queue failed"); continue; }
+        };
+
+        // Poll for the command (act as agent).
+        let _received: FleetCommand = match client
+            .get(format!("{}/fleet/{}/commands/next", base, agent.id))
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+        {
+            Ok(r) => match r.json().await {
+                Ok(c) => c,
+                Err(e) => { error!(%e, agent = %name, ping_num, "poll parse failed"); continue; }
+            },
+            Err(e) => { error!(%e, agent = %name, ping_num, "poll failed"); continue; }
+        };
+
+        // Submit result — server computes the latency.
+        match client
+            .post(format!(
+                "{}/fleet/{}/jobs/{}/submit",
+                base,
+                agent.id,
+                format_job_id(cmd.job_id)
+            ))
+            .json(&JobSubmission { result: "pong".to_owned() })
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+        {
+            Ok(_) => info!(agent = %name, ping_num, "ping submitted"),
+            Err(e) => error!(%e, agent = %name, ping_num, "submit failed"),
+        }
+    }
 }
 
 fn init_tracing() {

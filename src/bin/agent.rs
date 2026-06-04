@@ -170,6 +170,27 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> Option<AgentA
 
             Some(AgentAction::Exit)
         }
+
+        CommandRequest::Ping => {
+            info!(
+                job_id = %display_job_id(command.job_id),
+                agent_id = %display_agent_id(command.agent_id),
+                "ping received"
+            );
+
+            if let Err(error) = api
+                .submit_result(command.agent_id, command.job_id, "pong".to_owned())
+                .await
+            {
+                warn!(
+                    %error,
+                    job_id = %display_job_id(command.job_id),
+                    "failed to submit ping result"
+                );
+            }
+
+            None
+        }
     }
 }
 

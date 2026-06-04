@@ -131,6 +131,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         <td data-agent-status></td>
         <td>
           <button data-kind="diagnostics">Diagnostics</button>
+          <button data-kind="ping">Ping</button>
           <button data-kind="restart">Restart</button>
           <button data-kind="exit">Exit</button>
         </td>

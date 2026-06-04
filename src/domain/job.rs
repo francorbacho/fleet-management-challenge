@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use serde::{Deserialize, Serialize};
 
 use super::{AgentId, CommandRequest};
@@ -23,6 +25,8 @@ pub struct JobRecord {
     pub command: CommandRequest,
     pub status: JobStatus,
     pub result: Option<String>,
+    #[serde(skip)]
+    pub queued_at: Option<Instant>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
