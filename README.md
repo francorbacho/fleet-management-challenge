@@ -20,16 +20,6 @@ cargo run --bin agent
 
 Then open http://127.0.0.1:3000 in your browser.
 
-## Using Just
-
-```sh
-just server          # Run the server
-just agent           # Run a single agent
-just agents 5        # Run 5 agents
-just bench 200 60    # Benchmark: 200 agents for 60 seconds
-just check           # Format check + lint + build
-```
-
 ## Environment Variables
 
 | Variable | Default | Description |
