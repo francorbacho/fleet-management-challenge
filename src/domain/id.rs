@@ -45,14 +45,6 @@ impl fmt::Display for AgentIdDisplay {
     }
 }
 
-pub struct CommandIdDisplay(u64);
-
-impl fmt::Display for CommandIdDisplay {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "c#{}", self.0)
-    }
-}
-
 pub struct JobIdDisplay(u64);
 
 impl fmt::Display for JobIdDisplay {
@@ -63,10 +55,6 @@ impl fmt::Display for JobIdDisplay {
 
 pub fn display_agent_id(id: AgentId) -> AgentIdDisplay {
     AgentIdDisplay(id)
-}
-
-pub fn display_command_id(id: u64) -> CommandIdDisplay {
-    CommandIdDisplay(id)
 }
 
 pub fn display_job_id(id: u64) -> JobIdDisplay {

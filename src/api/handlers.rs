@@ -11,8 +11,7 @@ use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
     AgentId, CommandRequest, ComputeAssignment, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_command_id,
-    display_job_id,
+    FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_job_id,
 };
 
 pub(super) async fn health() -> StatusCode {
@@ -66,7 +65,7 @@ pub(super) async fn queue_command(
 
     info!(
         agent_id = %display_agent_id(agent_id),
-        command_id = %display_command_id(command.id),
+        job_id = %display_job_id(command.job_id),
         kind = ?command.kind,
         "queued command"
     );
@@ -104,7 +103,7 @@ pub(super) async fn next_command(
 
             info!(
                 agent_id = %display_agent_id(agent_id),
-                command_id = %display_command_id(command.id),
+                job_id = %display_job_id(command.job_id),
                 kind = ?command.kind,
                 "delivered command"
             );
@@ -155,7 +154,7 @@ fn track_job(state: &AppState, command: &FleetCommand) {
     };
 
     let job = JobRecord {
-        job_id: command.id,
+        job_id: command.job_id,
         agent_id: command.agent_id,
         number: compute.number,
         calculation: compute.calculation,
@@ -176,7 +175,7 @@ fn accept_job(state: &AppState, command: &FleetCommand) {
     }
 
     let mut jobs = state.jobs.lock().expect("job table lock poisoned");
-    if let Some(job) = jobs.iter_mut().find(|job| job.job_id == command.id) {
+    if let Some(job) = jobs.iter_mut().find(|job| job.job_id == command.job_id) {
         job.status = JobStatus::Accepted;
     }
 }

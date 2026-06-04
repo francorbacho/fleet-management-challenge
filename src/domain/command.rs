@@ -4,7 +4,7 @@ use super::{AgentId, random_id};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FleetCommand {
-    pub id: u64,
+    pub job_id: u64,
     pub agent_id: AgentId,
     pub kind: FleetCommandKind,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -14,7 +14,7 @@ pub struct FleetCommand {
 impl FleetCommand {
     pub fn new(agent_id: AgentId, kind: FleetCommandKind) -> Self {
         Self {
-            id: random_id(),
+            job_id: random_id(),
             agent_id,
             kind,
             compute: None,
@@ -23,7 +23,7 @@ impl FleetCommand {
 
     pub fn compute(agent_id: AgentId, compute: ComputeAssignment) -> Self {
         Self {
-            id: random_id(),
+            job_id: random_id(),
             agent_id,
             kind: FleetCommandKind::Compute,
             compute: Some(compute),

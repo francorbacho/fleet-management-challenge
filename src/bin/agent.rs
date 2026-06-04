@@ -1,6 +1,6 @@
 use fleet_management_challenge::domain::{
     ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, NewFleetUnit, display_agent_id, display_command_id, display_job_id,
+    FleetUnit, NewFleetUnit, display_agent_id, display_job_id,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -78,14 +78,14 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
     match command.kind {
         FleetCommandKind::Diagnostics => {
             info!(
-                command_id = %display_command_id(command.id),
+                job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
                 "running diagnostics"
             );
         }
         FleetCommandKind::Restart => {
             info!(
-                command_id = %display_command_id(command.id),
+                job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
                 "simulating restart"
             );
@@ -93,7 +93,7 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
         FleetCommandKind::Compute => {
             let Some(ref assignment) = command.compute else {
                 warn!(
-                    command_id = %display_command_id(command.id),
+                    job_id = %display_job_id(command.job_id),
                     "compute command missing assignment"
                 );
                 return;
@@ -101,9 +101,8 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
             let result = calculate(assignment);
 
             info!(
-                command_id = %display_command_id(command.id),
+                job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
-                job_id = %display_job_id(command.id),
                 number = assignment.number,
                 calculation = ?assignment.calculation,
                 result = result,
@@ -115,7 +114,7 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
             if let Err(error) = submit_compute_result(client, api_url, &command, result).await {
                 warn!(
                     %error,
-                    command_id = %display_command_id(command.id),
+                    job_id = %display_job_id(command.job_id),
                     "failed to submit compute result"
                 );
             }
@@ -139,7 +138,7 @@ async fn submit_compute_result(
 ) -> Result<(), reqwest::Error> {
     let submit_url = format!(
         "{}/fleet/{}/jobs/{}/submit",
-        api_url, command.agent_id, command.id
+        api_url, command.agent_id, command.job_id
     );
 
     client
