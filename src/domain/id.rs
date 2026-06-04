@@ -65,7 +65,7 @@ pub struct AgentIdDisplay(AgentId);
 
 impl fmt::Display for AgentIdDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "a#{:x}", self.0 .0)
+        write!(formatter, "a#{:x}", self.0.0)
     }
 }
 

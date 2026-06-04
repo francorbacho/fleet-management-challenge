@@ -9,8 +9,7 @@ mod web;
 pub use state::AppState;
 
 use handlers::{
-    get_unit, health, list_jobs, list_units, next_command, queue_command, register_unit,
-    submit_job,
+    get_unit, health, list_jobs, list_units, next_command, queue_command, register_unit, submit_job,
 };
 use web::index;
 
