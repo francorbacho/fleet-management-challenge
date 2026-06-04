@@ -80,6 +80,6 @@ pub enum ComputeCalculation {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct ComputeSubmission {
+pub struct JobSubmission {
     pub result: f64,
 }

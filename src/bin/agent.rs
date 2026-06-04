@@ -1,7 +1,7 @@
 use fleet_management_challenge::domain::{
-    AgentId, ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand,
+    AgentId, ComputeAssignment, ComputeCalculation, FleetCommand,
     FleetCommandKind, FleetUnit, JobId, NewFleetUnit, display_agent_id, display_job_id,
-    format_job_id,
+    format_job_id, JobSubmission,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -145,7 +145,7 @@ impl ApiClient {
 
         self.client
             .post(&url)
-            .json(&ComputeSubmission { result })
+            .json(&JobSubmission { result })
             .send()
             .await?
             .error_for_status()?;

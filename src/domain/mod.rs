@@ -6,7 +6,7 @@ mod registry;
 
 pub use agent::{AgentStatus, FleetUnit, NewFleetUnit};
 pub use command::{
-    CommandRequest, ComputeAssignment, ComputeCalculation, ComputeRequest, ComputeSubmission,
+    CommandRequest, ComputeAssignment, ComputeCalculation, ComputeRequest, JobSubmission,
     FleetCommand, FleetCommandKind,
 };
 pub(crate) use id::random_id;

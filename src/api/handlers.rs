@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
-    AgentId, CommandRequest, ComputeAssignment, ComputeSubmission, FleetCommand, FleetCommandKind,
+    AgentId, CommandRequest, ComputeAssignment, FleetCommand, FleetCommandKind, JobSubmission,
     FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_job_id, parse_job_id,
 };
 
@@ -217,7 +217,7 @@ fn accept_job(state: &AppState, command: &FleetCommand) {
 pub(super) async fn submit_job(
     State(state): State<AppState>,
     Path((agent_id, job_id_str)): Path<(AgentId, String)>,
-    Json(submission): Json<ComputeSubmission>,
+    Json(submission): Json<JobSubmission>,
 ) -> Result<StatusCode, ApiError> {
     state
         .registry
@@ -240,7 +240,7 @@ fn complete_job(
     state: &AppState,
     agent_id: AgentId,
     job_id: u64,
-    submission: &ComputeSubmission,
+    submission: &JobSubmission,
 ) -> Result<(), ApiError> {
     let mut jobs = state.jobs.lock().expect("job table lock poisoned");
     let job = jobs
