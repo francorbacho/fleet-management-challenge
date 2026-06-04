@@ -132,6 +132,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         <td>
           <button data-kind="diagnostics">Diagnostics</button>
           <button data-kind="restart">Restart</button>
+          <button data-kind="exit">Exit</button>
         </td>
         <td>
           <input type="number" step="any" value="12.5" aria-label="Double number">

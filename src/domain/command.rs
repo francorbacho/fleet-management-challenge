@@ -44,9 +44,10 @@ impl FleetCommand {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandRequest {
+    Double(f64),
     Diagnostics,
     Restart,
-    Double(f64),
+    Exit,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

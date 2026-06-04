@@ -162,9 +162,10 @@ fn pop_next_command(state: &AppState, agent_id: AgentId) -> Option<FleetCommand>
 
 fn build_command(agent_id: AgentId, request: CommandRequest) -> Result<FleetCommand, ApiError> {
     match request {
+        CommandRequest::Double(number) => Ok(FleetCommand::double(agent_id, number)),
         CommandRequest::Diagnostics => Ok(FleetCommand::new(agent_id, CommandRequest::Diagnostics)),
         CommandRequest::Restart => Ok(FleetCommand::new(agent_id, CommandRequest::Restart)),
-        CommandRequest::Double(number) => Ok(FleetCommand::double(agent_id, number)),
+        CommandRequest::Exit => Ok(FleetCommand::new(agent_id, CommandRequest::Exit)),
     }
 }
 

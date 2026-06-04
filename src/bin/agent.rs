@@ -6,6 +6,11 @@ use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
 
+enum AgentAction {
+    Restart,
+    Exit,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
@@ -32,35 +37,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "agent registered"
         );
 
-        run_session(&api, agent).await;
+        if let AgentAction::Exit = run_session(&api, agent).await {
+            return Ok(());
+        }
 
         info!("reconnecting to server");
         sleep(Duration::from_secs(2)).await;
     }
 }
 
-async fn run_session(api: &ApiClient, agent: FleetUnit) {
+async fn run_session(api: &ApiClient, agent: FleetUnit) -> AgentAction {
     let mut consecutive_errors = 0u32;
 
     loop {
         match api.next_command(agent.id).await {
             Ok(Some(command)) => {
                 consecutive_errors = 0;
-                let restart = handle_command(api, command).await;
-                if restart {
-                    info!("restart requested, re-registering");
-                    return;
+                let action = handle_command(api, command).await;
+                if let Some(action) = action {
+                    return action;
                 }
             }
+
             Ok(None) => {
                 consecutive_errors = 0;
             }
+
             Err(error) => {
                 consecutive_errors += 1;
                 warn!(%error, "command poll failed");
                 if consecutive_errors >= 3 {
                     warn!("too many consecutive errors, re-registering");
-                    return;
+                    return AgentAction::Restart;
                 }
                 sleep(Duration::from_secs(3)).await;
             }
@@ -69,38 +77,8 @@ async fn run_session(api: &ApiClient, agent: FleetUnit) {
 }
 
 /// Returns `true` if the agent should restart (re-register).
-async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
+async fn handle_command(api: &ApiClient, command: FleetCommand) -> Option<AgentAction> {
     match command.request {
-        CommandRequest::Diagnostics => {
-            let diagnostics = collect_diagnostics();
-            info!(
-                job_id = %display_job_id(command.job_id),
-                agent_id = %display_agent_id(command.agent_id),
-                %diagnostics,
-                "diagnostics complete"
-            );
-
-            if let Err(error) = api
-                .submit_result(command.agent_id, command.job_id, diagnostics)
-                .await
-            {
-                warn!(
-                    %error,
-                    job_id = %display_job_id(command.job_id),
-                    "failed to submit diagnostics result"
-                );
-            }
-
-            false
-        }
-        CommandRequest::Restart => {
-            info!(
-                job_id = %display_job_id(command.job_id),
-                agent_id = %display_agent_id(command.agent_id),
-                "restarting agent"
-            );
-            true
-        }
         CommandRequest::Double(number) => {
             let result = number * 2.0;
 
@@ -124,7 +102,51 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
                     "failed to submit compute result"
                 );
             }
-            false
+
+            None
+        }
+
+        CommandRequest::Diagnostics => {
+            let diagnostics = collect_diagnostics();
+            info!(
+                job_id = %display_job_id(command.job_id),
+                agent_id = %display_agent_id(command.agent_id),
+                %diagnostics,
+                "diagnostics complete"
+            );
+
+            if let Err(error) = api
+                .submit_result(command.agent_id, command.job_id, diagnostics)
+                .await
+            {
+                warn!(
+                    %error,
+                    job_id = %display_job_id(command.job_id),
+                    "failed to submit diagnostics result"
+                );
+            }
+
+            None
+        }
+
+        CommandRequest::Restart => {
+            info!(
+                job_id = %display_job_id(command.job_id),
+                agent_id = %display_agent_id(command.agent_id),
+                "restarting agent"
+            );
+
+            Some(AgentAction::Restart)
+        }
+
+        CommandRequest::Exit => {
+            info!(
+                job_id = %display_job_id(command.job_id),
+                agent_id = %display_agent_id(command.agent_id),
+                "exiting agent"
+            );
+
+            Some(AgentAction::Exit)
         }
     }
 }
