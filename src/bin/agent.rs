@@ -1,6 +1,6 @@
 use fleet_management_challenge::domain::{
     ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, NewFleetUnit,
+    FleetUnit, NewFleetUnit, display_agent_id, display_command_id, display_job_id,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registration_url = format!("{}/fleet", api_url.trim_end_matches('/'));
     let client = reqwest::Client::new();
 
-    let registered_unit = client
+    let registered_agent = client
         .post(&registration_url)
         .json(&NewFleetUnit { name: agent_name })
         .send()
@@ -26,15 +26,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     info!(
-        unit_id = %registered_unit.id,
-        unit_name = %registered_unit.name,
+        agent_id = %display_agent_id(registered_agent.id),
+        agent_name = %registered_agent.name,
         "agent registered"
     );
 
     let command_url = format!(
         "{}/fleet/{}/commands/next",
         api_url.trim_end_matches('/'),
-        registered_unit.id
+        registered_agent.id
     );
 
     loop {
@@ -78,29 +78,32 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
     match command.kind {
         FleetCommandKind::Diagnostics => {
             info!(
-                command_id = %command.id,
-                unit_id = %command.unit_id,
+                command_id = %display_command_id(command.id),
+                agent_id = %display_agent_id(command.agent_id),
                 "running diagnostics"
             );
         }
         FleetCommandKind::Restart => {
             info!(
-                command_id = %command.id,
-                unit_id = %command.unit_id,
+                command_id = %display_command_id(command.id),
+                agent_id = %display_agent_id(command.agent_id),
                 "simulating restart"
             );
         }
         FleetCommandKind::Compute => {
             let Some(ref assignment) = command.compute else {
-                warn!(command_id = %command.id, "compute command missing assignment");
+                warn!(
+                    command_id = %display_command_id(command.id),
+                    "compute command missing assignment"
+                );
                 return;
             };
             let result = calculate(assignment);
 
             info!(
-                command_id = %command.id,
-                unit_id = %command.unit_id,
-                job_id = %command.id,
+                command_id = %display_command_id(command.id),
+                agent_id = %display_agent_id(command.agent_id),
+                job_id = %display_job_id(command.id),
                 number = assignment.number,
                 calculation = ?assignment.calculation,
                 result = result,
@@ -110,7 +113,11 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
             sleep(Duration::from_secs(5)).await;
 
             if let Err(error) = submit_compute_result(client, api_url, &command, result).await {
-                warn!(%error, command_id = %command.id, "failed to submit compute result");
+                warn!(
+                    %error,
+                    command_id = %display_command_id(command.id),
+                    "failed to submit compute result"
+                );
             }
         }
     }
@@ -132,7 +139,7 @@ async fn submit_compute_result(
 ) -> Result<(), reqwest::Error> {
     let submit_url = format!(
         "{}/fleet/{}/jobs/{}/submit",
-        api_url, command.unit_id, command.id
+        api_url, command.agent_id, command.id
     );
 
     client

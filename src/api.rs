@@ -19,9 +19,9 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/fleet", get(list_units).post(register_unit))
         .route("/jobs", get(list_jobs))
-        .route("/fleet/{unit_id}", get(get_unit))
-        .route("/fleet/{unit_id}/commands", post(queue_command))
-        .route("/fleet/{unit_id}/commands/next", get(next_command))
-        .route("/fleet/{unit_id}/jobs/{job_id}/submit", post(submit_job))
+        .route("/fleet/{agent_id}", get(get_unit))
+        .route("/fleet/{agent_id}/commands", post(queue_command))
+        .route("/fleet/{agent_id}/commands/next", get(next_command))
+        .route("/fleet/{agent_id}/jobs/{job_id}/submit", post(submit_job))
         .with_state(state)
 }

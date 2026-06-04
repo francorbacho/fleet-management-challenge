@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use crate::domain::{
-    FleetDirectory, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError, UnitId,
+    AgentId, FleetDirectory, FleetRegistry, FleetUnit, NewFleetUnit, RegistryError,
 };
 
 #[derive(Default)]
 pub struct InMemoryFleetRegistry {
-    units: RwLock<HashMap<UnitId, FleetUnit>>,
+    units: RwLock<HashMap<AgentId, FleetUnit>>,
 }
 
 impl FleetDirectory for InMemoryFleetRegistry {
@@ -16,7 +16,7 @@ impl FleetDirectory for InMemoryFleetRegistry {
         units.values().cloned().collect()
     }
 
-    fn get_unit(&self, id: UnitId) -> Option<FleetUnit> {
+    fn get_unit(&self, id: AgentId) -> Option<FleetUnit> {
         let units = self.units.read().expect("fleet registry lock poisoned");
         units.get(&id).cloned()
     }

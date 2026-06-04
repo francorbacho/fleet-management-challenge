@@ -86,7 +86,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         <div class="agent-head">
           <div>
             <div class="name">${escapeHtml(agent.name)}</div>
-            <div class="id">${agent.id}</div>
+            <div class="id">${formatAgentId(agent.id)}</div>
           </div>
         </div>
         <div class="actions">
@@ -118,11 +118,11 @@ const INDEX_HTML: &str = r##"<!doctype html>
         <div class="job-top">
           <div>
             <div class="job-title">${job.calculation} ${job.number}</div>
-            <div class="meta">Job ${job.job_id}</div>
+            <div class="meta">Job ${formatJobId(job.job_id)}</div>
           </div>
           <span class="pill ${completed ? "completed" : ""}">${job.status}</span>
         </div>
-        <div class="meta">Agent ${job.unit_id}</div>
+        <div class="meta">Agent ${formatAgentId(job.agent_id)}</div>
         <div class="result">${completed ? `Result: ${job.result}` : "Waiting for result"}</div>
       `;
       return el;
@@ -142,7 +142,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body)
       });
-      statusEl.textContent = `Queued ${command.kind} for ${agentId}`;
+      statusEl.textContent = `Queued ${command.kind} for ${formatAgentId(agentId)}`;
       await loadJobs();
     }
 
@@ -156,6 +156,18 @@ const INDEX_HTML: &str = r##"<!doctype html>
       return value.replace(/[&<>"']/g, char => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       }[char]));
+    }
+
+    function formatAgentId(id) {
+      return `a#${formatId(id)}`;
+    }
+
+    function formatJobId(id) {
+      return `j#${formatId(id)}`;
+    }
+
+    function formatId(id) {
+      return Math.trunc(Number(id)).toString();
     }
   </script>
 </body>

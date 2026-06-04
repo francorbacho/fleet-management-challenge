@@ -10,8 +10,9 @@ use tracing::info;
 use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
-    CommandRequest, ComputeAssignment, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, JobRecord, JobStatus, NewFleetUnit, UnitId,
+    AgentId, CommandRequest, ComputeAssignment, ComputeSubmission, FleetCommand, FleetCommandKind,
+    FleetUnit, JobRecord, JobStatus, NewFleetUnit, display_agent_id, display_command_id,
+    display_job_id,
 };
 
 pub(super) async fn health() -> StatusCode {
@@ -23,13 +24,7 @@ pub(super) async fn list_units(State(state): State<AppState>) -> Json<Vec<FleetU
 }
 
 pub(super) async fn list_jobs(State(state): State<AppState>) -> Json<Vec<JobRecord>> {
-    let mut jobs = state
-        .jobs
-        .lock()
-        .expect("job table lock poisoned")
-        .values()
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut jobs = state.jobs.lock().expect("job table lock poisoned").clone();
     jobs.sort_by_key(|job| job.job_id);
 
     Json(jobs)
@@ -41,34 +36,37 @@ pub(super) async fn register_unit(
 ) -> Result<(StatusCode, Json<FleetUnit>), ApiError> {
     let unit = state.registry.register_unit(input)?;
 
-    info!(unit_id = %unit.id, "registered unit");
+    info!(agent_id = %display_agent_id(unit.id), "registered agent");
 
     Ok((StatusCode::CREATED, Json(unit)))
 }
 
 pub(super) async fn queue_command(
     State(state): State<AppState>,
-    Path(unit_id): Path<UnitId>,
+    Path(agent_id): Path<AgentId>,
     Json(request): Json<CommandRequest>,
 ) -> Result<(StatusCode, Json<FleetCommand>), ApiError> {
-    state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
+    state
+        .registry
+        .get_unit(agent_id)
+        .ok_or(ApiError::NotFound)?;
 
-    let command = build_command(unit_id, request)?;
+    let command = build_command(agent_id, request)?;
     {
         let mut queues = state
             .command_queues
             .lock()
             .expect("command queue lock poisoned");
         queues
-            .entry(unit_id)
+            .entry(agent_id)
             .or_default()
             .push_back(command.clone());
     }
     track_job(&state, &command);
 
     info!(
-        unit_id = %unit_id,
-        command_id = %command.id,
+        agent_id = %display_agent_id(agent_id),
+        command_id = %display_command_id(command.id),
         kind = ?command.kind,
         "queued command"
     );
@@ -78,30 +76,33 @@ pub(super) async fn queue_command(
 
 pub(super) async fn get_unit(
     State(state): State<AppState>,
-    Path(unit_id): Path<UnitId>,
+    Path(agent_id): Path<AgentId>,
 ) -> Result<Json<FleetUnit>, ApiError> {
     state
         .registry
-        .get_unit(unit_id)
+        .get_unit(agent_id)
         .map(Json)
         .ok_or(ApiError::NotFound)
 }
 
 pub(super) async fn next_command(
     State(state): State<AppState>,
-    Path(unit_id): Path<UnitId>,
+    Path(agent_id): Path<AgentId>,
 ) -> Result<Response, ApiError> {
-    state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
+    state
+        .registry
+        .get_unit(agent_id)
+        .ok_or(ApiError::NotFound)?;
 
     let mut waited = Duration::ZERO;
     let interval = Duration::from_millis(250);
     let timeout = Duration::from_secs(30);
 
     while waited < timeout {
-        if let Some(command) = pop_next_command(&state, unit_id) {
+        if let Some(command) = pop_next_command(&state, agent_id) {
             info!(
-                unit_id = %unit_id,
-                command_id = %command.id,
+                agent_id = %display_agent_id(agent_id),
+                command_id = %display_command_id(command.id),
                 kind = ?command.kind,
                 "delivered command"
             );
@@ -116,27 +117,27 @@ pub(super) async fn next_command(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-fn pop_next_command(state: &AppState, unit_id: UnitId) -> Option<FleetCommand> {
+fn pop_next_command(state: &AppState, agent_id: AgentId) -> Option<FleetCommand> {
     let mut queues = state
         .command_queues
         .lock()
         .expect("command queue lock poisoned");
-    queues.get_mut(&unit_id).and_then(VecDeque::pop_front)
+    queues.get_mut(&agent_id).and_then(VecDeque::pop_front)
 }
 
-fn build_command(unit_id: UnitId, request: CommandRequest) -> Result<FleetCommand, ApiError> {
+fn build_command(agent_id: AgentId, request: CommandRequest) -> Result<FleetCommand, ApiError> {
     match request.kind {
         FleetCommandKind::Diagnostics => {
-            Ok(FleetCommand::new(unit_id, FleetCommandKind::Diagnostics))
+            Ok(FleetCommand::new(agent_id, FleetCommandKind::Diagnostics))
         }
-        FleetCommandKind::Restart => Ok(FleetCommand::new(unit_id, FleetCommandKind::Restart)),
+        FleetCommandKind::Restart => Ok(FleetCommand::new(agent_id, FleetCommandKind::Restart)),
         FleetCommandKind::Compute => {
             let compute = request.compute.ok_or(ApiError::BadRequest(
                 "compute commands require a compute payload",
             ))?;
 
             Ok(FleetCommand::compute(
-                unit_id,
+                agent_id,
                 ComputeAssignment {
                     number: compute.number,
                     calculation: compute.calculation,
@@ -153,7 +154,7 @@ fn track_job(state: &AppState, command: &FleetCommand) {
 
     let job = JobRecord {
         job_id: command.id,
-        unit_id: command.unit_id,
+        agent_id: command.agent_id,
         number: compute.number,
         calculation: compute.calculation,
         status: JobStatus::Pending,
@@ -164,20 +165,23 @@ fn track_job(state: &AppState, command: &FleetCommand) {
         .jobs
         .lock()
         .expect("job table lock poisoned")
-        .insert(job.job_id, job);
+        .push(job);
 }
 
 pub(super) async fn submit_job(
     State(state): State<AppState>,
-    Path((unit_id, job_id)): Path<(UnitId, uuid::Uuid)>,
+    Path((agent_id, job_id)): Path<(AgentId, u64)>,
     Json(submission): Json<ComputeSubmission>,
 ) -> Result<StatusCode, ApiError> {
-    state.registry.get_unit(unit_id).ok_or(ApiError::NotFound)?;
-    complete_job(&state, unit_id, job_id, &submission)?;
+    state
+        .registry
+        .get_unit(agent_id)
+        .ok_or(ApiError::NotFound)?;
+    complete_job(&state, agent_id, job_id, &submission)?;
 
     info!(
-        unit_id = %unit_id,
-        job_id = %job_id,
+        agent_id = %display_agent_id(agent_id),
+        job_id = %display_job_id(job_id),
         result = submission.result,
         "completed job"
     );
@@ -187,14 +191,17 @@ pub(super) async fn submit_job(
 
 fn complete_job(
     state: &AppState,
-    unit_id: UnitId,
-    job_id: uuid::Uuid,
+    agent_id: AgentId,
+    job_id: u64,
     submission: &ComputeSubmission,
 ) -> Result<(), ApiError> {
     let mut jobs = state.jobs.lock().expect("job table lock poisoned");
-    let job = jobs.get_mut(&job_id).ok_or(ApiError::NotFound)?;
+    let job = jobs
+        .iter_mut()
+        .find(|job| job.job_id == job_id)
+        .ok_or(ApiError::NotFound)?;
 
-    if job.unit_id != unit_id {
+    if job.agent_id != agent_id {
         return Err(ApiError::BadRequest(
             "job submission does not match assignment",
         ));
