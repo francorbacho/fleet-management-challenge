@@ -100,6 +100,8 @@ pub(super) async fn next_command(
 
     while waited < timeout {
         if let Some(command) = pop_next_command(&state, agent_id) {
+            accept_job(&state, &command);
+
             info!(
                 agent_id = %display_agent_id(agent_id),
                 command_id = %display_command_id(command.id),
@@ -168,6 +170,17 @@ fn track_job(state: &AppState, command: &FleetCommand) {
         .push(job);
 }
 
+fn accept_job(state: &AppState, command: &FleetCommand) {
+    if command.compute.is_none() {
+        return;
+    }
+
+    let mut jobs = state.jobs.lock().expect("job table lock poisoned");
+    if let Some(job) = jobs.iter_mut().find(|job| job.job_id == command.id) {
+        job.status = JobStatus::Accepted;
+    }
+}
+
 pub(super) async fn submit_job(
     State(state): State<AppState>,
     Path((agent_id, job_id)): Path<(AgentId, u64)>,
@@ -183,7 +196,7 @@ pub(super) async fn submit_job(
         agent_id = %display_agent_id(agent_id),
         job_id = %display_job_id(job_id),
         result = submission.result,
-        "completed job"
+        "succeeded job"
     );
 
     Ok(StatusCode::ACCEPTED)
@@ -207,7 +220,7 @@ fn complete_job(
         ));
     }
 
-    job.status = JobStatus::Completed;
+    job.status = JobStatus::Succeed;
     job.result = Some(submission.result);
 
     Ok(())

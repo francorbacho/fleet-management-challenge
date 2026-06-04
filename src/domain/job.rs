@@ -16,5 +16,7 @@ pub struct JobRecord {
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
     Pending,
-    Completed,
+    Accepted,
+    Succeed,
+    Failed,
 }

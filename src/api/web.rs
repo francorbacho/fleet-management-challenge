@@ -25,7 +25,9 @@ const INDEX_HTML: &str = r##"<!doctype html>
     .name, .job-title, .result { font-weight: 700; }
     .id, .meta, .empty, .status { color: #666; overflow-wrap: anywhere; }
     .pill { border: 1px solid #ddd; border-radius: 999px; padding: 2px 8px; }
-    .completed { background: #e8f7ea; }
+    .pill.accepted { background: #eef4ff; }
+    .pill.succeed { background: #e8f7ea; }
+    .pill.failed { background: #fdecec; }
   </style>
 </head>
 <body>
@@ -112,7 +114,7 @@ const INDEX_HTML: &str = r##"<!doctype html>
 
     function renderJob(job) {
       const el = document.createElement("article");
-      const completed = job.status === "completed";
+      const finished = job.status === "succeed";
       el.className = "job";
       el.innerHTML = `
         <div class="job-top">
@@ -120,12 +122,19 @@ const INDEX_HTML: &str = r##"<!doctype html>
             <div class="job-title">${job.calculation} ${job.number}</div>
             <div class="meta">Job ${formatJobId(job.job_id)}</div>
           </div>
-          <span class="pill ${completed ? "completed" : ""}">${job.status}</span>
+          <span class="pill ${job.status}">${job.status}</span>
         </div>
         <div class="meta">Agent ${formatAgentId(job.agent_id)}</div>
-        <div class="result">${completed ? `Result: ${job.result}` : "Waiting for result"}</div>
+        <div class="result">${renderJobResult(job, finished)}</div>
       `;
       return el;
+    }
+
+    function renderJobResult(job, finished) {
+      if (finished) return `Result: ${job.result}`;
+      if (job.status === "accepted") return "Accepted by agent";
+      if (job.status === "failed") return "Failed";
+      return "Waiting for agent";
     }
 
     async function queueCommand(agentId, kind, root) {
