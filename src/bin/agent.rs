@@ -13,39 +13,89 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_url =
         std::env::var("FLEET_API_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".to_owned());
     let agent_name = std::env::var("FLEET_AGENT_NAME").unwrap_or_else(|_| "fleet-agent".to_owned());
-    let registration_url = format!("{}/fleet", api_url.trim_end_matches('/'));
     let client = reqwest::Client::new();
 
-    let registered_agent = client
-        .post(&registration_url)
-        .json(&NewFleetUnit { name: agent_name })
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<FleetUnit>()
-        .await?;
+    loop {
+        let registered_agent =
+            match register_with_retry(&client, &api_url, &agent_name).await {
+                Ok(agent) => agent,
+                Err(error) => {
+                    warn!(%error, "registration failed, retrying");
+                    sleep(Duration::from_secs(3)).await;
+                    continue;
+                }
+            };
 
-    info!(
-        agent_id = %display_agent_id(registered_agent.id),
-        agent_name = %registered_agent.name,
-        "agent registered"
-    );
+        info!(
+            agent_id = %display_agent_id(registered_agent.id),
+            agent_name = %registered_agent.name,
+            "agent registered"
+        );
 
-    let command_url = format!(
-        "{}/fleet/{}/commands/next",
-        api_url.trim_end_matches('/'),
-        registered_agent.id
-    );
+        let command_url = format!(
+            "{}/fleet/{}/commands/next",
+            api_url.trim_end_matches('/'),
+            registered_agent.id
+        );
+
+        let mut consecutive_errors = 0u32;
+        loop {
+            match poll_next_command(&client, &command_url).await {
+                Ok(Some(command)) => {
+                    consecutive_errors = 0;
+                    if handle_command(&client, api_url.trim_end_matches('/'), command).await {
+                        info!("restart requested, re-registering");
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    consecutive_errors = 0;
+                }
+                Err(error) => {
+                    consecutive_errors += 1;
+                    warn!(%error, "command poll failed");
+                    if consecutive_errors >= 3 {
+                        warn!("too many consecutive errors, re-registering");
+                        break;
+                    }
+                    sleep(Duration::from_secs(3)).await;
+                }
+            }
+        }
+
+        info!("reconnecting to server");
+        sleep(Duration::from_secs(2)).await;
+    }
+}
+
+async fn register_with_retry(
+    client: &reqwest::Client,
+    api_url: &str,
+    agent_name: &str,
+) -> Result<FleetUnit, Box<dyn std::error::Error>> {
+    let registration_url = format!("{}/fleet", api_url.trim_end_matches('/'));
+    let mut attempts = 0;
 
     loop {
-        match poll_next_command(&client, &command_url).await {
-            Ok(Some(command)) => {
-                handle_command(&client, api_url.trim_end_matches('/'), command).await
+        match client
+            .post(&registration_url)
+            .json(&NewFleetUnit {
+                name: agent_name.to_owned(),
+            })
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let agent = response.error_for_status()?.json::<FleetUnit>().await?;
+                return Ok(agent);
             }
-            Ok(None) => {}
             Err(error) => {
-                warn!(%error, "command poll failed");
-                sleep(Duration::from_secs(3)).await;
+                attempts += 1;
+                warn!(%error, attempts, "failed to register, retrying");
+                if attempts >= 10 {
+                    return Err(error.into());
+                }
+                sleep(Duration::from_secs(2)).await;
             }
         }
     }
@@ -74,21 +124,26 @@ async fn poll_next_command(
     response.json::<FleetCommand>().await.map(Some)
 }
 
-async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetCommand) {
+/// Returns `true` if the agent should restart (re-register).
+async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetCommand) -> bool {
     match command.kind {
         FleetCommandKind::Diagnostics => {
+            let diagnostics = collect_diagnostics();
             info!(
                 job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
-                "running diagnostics"
+                %diagnostics,
+                "diagnostics complete"
             );
+            false
         }
         FleetCommandKind::Restart => {
             info!(
                 job_id = %display_job_id(command.job_id),
                 agent_id = %display_agent_id(command.agent_id),
-                "simulating restart"
+                "restarting agent"
             );
+            true
         }
         FleetCommandKind::Compute => {
             let Some(ref assignment) = command.compute else {
@@ -96,7 +151,7 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
                     job_id = %display_job_id(command.job_id),
                     "compute command missing assignment"
                 );
-                return;
+                return false;
             };
             let result = calculate(assignment);
 
@@ -118,6 +173,7 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
                     "failed to submit compute result"
                 );
             }
+            false
         }
     }
 }
@@ -128,6 +184,25 @@ fn calculate(assignment: &ComputeAssignment) -> f64 {
         ComputeCalculation::Square => assignment.number * assignment.number,
         ComputeCalculation::SquareRoot => assignment.number.sqrt(),
     }
+}
+
+fn collect_diagnostics() -> String {
+    let pid = std::process::id();
+    let uptime = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let num_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    format!(
+        "pid={} timestamp={} cpus={} os={} arch={}",
+        pid,
+        uptime,
+        num_cpus,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
 }
 
 async fn submit_compute_result(
