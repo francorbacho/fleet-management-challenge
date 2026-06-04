@@ -80,6 +80,18 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
                 %diagnostics,
                 "diagnostics complete"
             );
+
+            if let Err(error) = api
+                .submit_result(command.agent_id, command.job_id, diagnostics)
+                .await
+            {
+                warn!(
+                    %error,
+                    job_id = %display_job_id(command.job_id),
+                    "failed to submit diagnostics result"
+                );
+            }
+
             false
         }
         FleetCommandKind::Restart => {
@@ -112,7 +124,7 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
             sleep(Duration::from_secs(5)).await;
 
             if let Err(error) = api
-                .submit_result(command.agent_id, command.job_id, result)
+                .submit_result(command.agent_id, command.job_id, result.to_string())
                 .await
             {
                 warn!(

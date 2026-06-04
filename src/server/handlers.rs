@@ -10,8 +10,8 @@ use tracing::{info, warn};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::domain::{
-    AgentId, CommandRequest, ComputeAssignment, FleetCommand, FleetCommandKind,
-    FleetUnit, JobRecord, JobStatus, JobSubmission, NewFleetUnit, display_agent_id, display_job_id,
+    AgentId, CommandRequest, ComputeAssignment, FleetCommand, FleetCommandKind, FleetUnit,
+    JobRecord, JobStatus, JobSubmission, NewFleetUnit, display_agent_id, display_job_id,
     parse_job_id,
 };
 
@@ -256,7 +256,7 @@ fn complete_job(
     }
 
     job.status = JobStatus::Succeed;
-    job.result = Some(submission.result);
+    job.result = Some(submission.result.clone());
 
     Ok(())
 }

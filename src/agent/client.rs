@@ -70,7 +70,7 @@ impl ApiClient {
         &self,
         agent_id: AgentId,
         job_id: JobId,
-        result: f64,
+        result: String,
     ) -> Result<(), reqwest::Error> {
         let url = format!(
             "{}/fleet/{}/jobs/{}/submit",

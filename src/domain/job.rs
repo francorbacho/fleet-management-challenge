@@ -23,7 +23,7 @@ pub struct JobRecord {
     pub number: f64,
     pub calculation: ComputeCalculation,
     pub status: JobStatus,
-    pub result: Option<f64>,
+    pub result: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
