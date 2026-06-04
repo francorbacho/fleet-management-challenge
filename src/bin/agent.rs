@@ -136,6 +136,17 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> Option<AgentA
                 "restarting agent"
             );
 
+            if let Err(error) = api
+                .submit_result(command.agent_id, command.job_id, "restarting".to_owned())
+                .await
+            {
+                warn!(
+                    %error,
+                    job_id = %display_job_id(command.job_id),
+                    "failed to submit restarting result"
+                );
+            }
+
             Some(AgentAction::Restart)
         }
 
@@ -145,6 +156,17 @@ async fn handle_command(api: &ApiClient, command: FleetCommand) -> Option<AgentA
                 agent_id = %display_agent_id(command.agent_id),
                 "exiting agent"
             );
+
+            if let Err(error) = api
+                .submit_result(command.agent_id, command.job_id, "exiting".to_owned())
+                .await
+            {
+                warn!(
+                    %error,
+                    job_id = %display_job_id(command.job_id),
+                    "failed to submit exiting result"
+                );
+            }
 
             Some(AgentAction::Exit)
         }
