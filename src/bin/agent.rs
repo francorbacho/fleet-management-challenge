@@ -1,6 +1,7 @@
 use fleet_management_challenge::domain::{
-    ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand, FleetCommandKind,
-    FleetUnit, NewFleetUnit, display_agent_id, display_job_id, format_job_id,
+    AgentId, ComputeAssignment, ComputeCalculation, ComputeSubmission, FleetCommand,
+    FleetCommandKind, FleetUnit, JobId, NewFleetUnit, display_agent_id, display_job_id,
+    format_job_id,
 };
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
@@ -10,122 +11,152 @@ use tracing_subscriber::{EnvFilter, fmt};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
 
-    let api_url =
+    let base_url =
         std::env::var("FLEET_API_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".to_owned());
-    let agent_name = std::env::var("FLEET_AGENT_NAME").unwrap_or_else(|_| "fleet-agent".to_owned());
-    let client = reqwest::Client::new();
+    let agent_name =
+        std::env::var("FLEET_AGENT_NAME").unwrap_or_else(|_| "fleet-agent".to_owned());
+
+    let api = ApiClient::new(base_url);
 
     loop {
-        let registered_agent =
-            match register_with_retry(&client, &api_url, &agent_name).await {
-                Ok(agent) => agent,
-                Err(error) => {
-                    warn!(%error, "registration failed, retrying");
-                    sleep(Duration::from_secs(3)).await;
-                    continue;
-                }
-            };
+        let agent = match api.register_with_retry(&agent_name).await {
+            Ok(agent) => agent,
+            Err(error) => {
+                warn!(%error, "registration failed, retrying");
+                sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+        };
 
         info!(
-            agent_id = %display_agent_id(registered_agent.id),
-            agent_name = %registered_agent.name,
+            agent_id = %display_agent_id(agent.id),
+            agent_name = %agent.name,
             "agent registered"
         );
 
-        let command_url = format!(
-            "{}/fleet/{}/commands/next",
-            api_url.trim_end_matches('/'),
-            registered_agent.id
-        );
-
-        let mut consecutive_errors = 0u32;
-        loop {
-            match poll_next_command(&client, &command_url).await {
-                Ok(Some(command)) => {
-                    consecutive_errors = 0;
-                    if handle_command(&client, api_url.trim_end_matches('/'), command).await {
-                        info!("restart requested, re-registering");
-                        break;
-                    }
-                }
-                Ok(None) => {
-                    consecutive_errors = 0;
-                }
-                Err(error) => {
-                    consecutive_errors += 1;
-                    warn!(%error, "command poll failed");
-                    if consecutive_errors >= 3 {
-                        warn!("too many consecutive errors, re-registering");
-                        break;
-                    }
-                    sleep(Duration::from_secs(3)).await;
-                }
-            }
-        }
+        run_session(&api, agent).await;
 
         info!("reconnecting to server");
         sleep(Duration::from_secs(2)).await;
     }
 }
 
-async fn register_with_retry(
-    client: &reqwest::Client,
-    api_url: &str,
-    agent_name: &str,
-) -> Result<FleetUnit, Box<dyn std::error::Error>> {
-    let registration_url = format!("{}/fleet", api_url.trim_end_matches('/'));
-    let mut attempts = 0;
+async fn run_session(api: &ApiClient, agent: FleetUnit) {
+    let mut consecutive_errors = 0u32;
 
     loop {
-        match client
-            .post(&registration_url)
-            .json(&NewFleetUnit {
-                name: agent_name.to_owned(),
-            })
-            .send()
-            .await
-        {
-            Ok(response) => {
-                let agent = response.error_for_status()?.json::<FleetUnit>().await?;
-                return Ok(agent);
+        match api.next_command(agent.id).await {
+            Ok(Some(command)) => {
+                consecutive_errors = 0;
+                let restart = handle_command(api, command).await;
+                if restart {
+                    info!("restart requested, re-registering");
+                    return;
+                }
+            }
+            Ok(None) => {
+                consecutive_errors = 0;
             }
             Err(error) => {
-                attempts += 1;
-                warn!(%error, attempts, "failed to register, retrying");
-                if attempts >= 10 {
-                    return Err(error.into());
+                consecutive_errors += 1;
+                warn!(%error, "command poll failed");
+                if consecutive_errors >= 3 {
+                    warn!("too many consecutive errors, re-registering");
+                    return;
                 }
-                sleep(Duration::from_secs(2)).await;
+                sleep(Duration::from_secs(3)).await;
             }
         }
     }
 }
 
-fn init_tracing() {
-    let filter = std::env::var("RUST_LOG")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "info".to_owned());
-    let filter = EnvFilter::new(filter);
-
-    fmt().with_env_filter(filter).with_target(false).init();
+struct ApiClient {
+    client: reqwest::Client,
+    base_url: String,
 }
 
-async fn poll_next_command(
-    client: &reqwest::Client,
-    command_url: &str,
-) -> Result<Option<FleetCommand>, reqwest::Error> {
-    let response = client.get(command_url).send().await?.error_for_status()?;
-
-    if response.status() == reqwest::StatusCode::NO_CONTENT {
-        return Ok(None);
+impl ApiClient {
+    fn new(base_url: String) -> Self {
+        let base_url = base_url.trim_end_matches('/').to_owned();
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+        }
     }
 
-    response.json::<FleetCommand>().await.map(Some)
+    async fn register_with_retry(
+        &self,
+        agent_name: &str,
+    ) -> Result<FleetUnit, Box<dyn std::error::Error>> {
+        let url = format!("{}/fleet", self.base_url);
+        let mut attempts = 0;
+
+        loop {
+            match self
+                .client
+                .post(&url)
+                .json(&NewFleetUnit {
+                    name: agent_name.to_owned(),
+                })
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let agent = response.error_for_status()?.json::<FleetUnit>().await?;
+                    return Ok(agent);
+                }
+                Err(error) => {
+                    attempts += 1;
+                    warn!(%error, attempts, "failed to register, retrying");
+                    if attempts >= 10 {
+                        return Err(error.into());
+                    }
+                    sleep(Duration::from_secs(2)).await;
+                }
+            }
+        }
+    }
+
+    async fn next_command(
+        &self,
+        agent_id: AgentId,
+    ) -> Result<Option<FleetCommand>, reqwest::Error> {
+        let url = format!("{}/fleet/{}/commands/next", self.base_url, agent_id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+
+        if response.status() == reqwest::StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+
+        response.json::<FleetCommand>().await.map(Some)
+    }
+
+    async fn submit_result(
+        &self,
+        agent_id: AgentId,
+        job_id: JobId,
+        result: f64,
+    ) -> Result<(), reqwest::Error> {
+        let url = format!(
+            "{}/fleet/{}/jobs/{}/submit",
+            self.base_url,
+            agent_id,
+            format_job_id(job_id)
+        );
+
+        self.client
+            .post(&url)
+            .json(&ComputeSubmission { result })
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(())
+    }
 }
 
 /// Returns `true` if the agent should restart (re-register).
-async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetCommand) -> bool {
+async fn handle_command(api: &ApiClient, command: FleetCommand) -> bool {
     match command.kind {
         FleetCommandKind::Diagnostics => {
             let diagnostics = collect_diagnostics();
@@ -160,13 +191,16 @@ async fn handle_command(client: &reqwest::Client, api_url: &str, command: FleetC
                 agent_id = %display_agent_id(command.agent_id),
                 number = assignment.number,
                 calculation = ?assignment.calculation,
-                result = result,
+                result,
                 "completed assigned compute job"
             );
 
             sleep(Duration::from_secs(5)).await;
 
-            if let Err(error) = submit_compute_result(client, api_url, &command, result).await {
+            if let Err(error) = api
+                .submit_result(command.agent_id, command.job_id, result)
+                .await
+            {
                 warn!(
                     %error,
                     job_id = %display_job_id(command.job_id),
@@ -205,23 +239,12 @@ fn collect_diagnostics() -> String {
     )
 }
 
-async fn submit_compute_result(
-    client: &reqwest::Client,
-    api_url: &str,
-    command: &FleetCommand,
-    result: f64,
-) -> Result<(), reqwest::Error> {
-    let submit_url = format!(
-        "{}/fleet/{}/jobs/{}/submit",
-        api_url, command.agent_id, format_job_id(command.job_id)
-    );
+fn init_tracing() {
+    let filter = std::env::var("RUST_LOG")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "info".to_owned());
+    let filter = EnvFilter::new(filter);
 
-    client
-        .post(submit_url)
-        .json(&ComputeSubmission { result })
-        .send()
-        .await?
-        .error_for_status()?;
-
-    Ok(())
+    fmt().with_env_filter(filter).with_target(false).init();
 }
