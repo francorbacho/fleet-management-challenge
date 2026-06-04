@@ -11,43 +11,65 @@ const INDEX_HTML: &str = r##"<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fleet Control</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; background: #f7f7f7; color: #222; }
-    main { max-width: 980px; margin: auto; padding: 24px; }
-    header, .agent-head, .job-top, .actions, .compute { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    header, .job-top { justify-content: space-between; }
-    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
-    .agents, .jobs { display: grid; gap: 10px; }
-    .agent, .job { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 12px; }
-    button, input, select { font: inherit; padding: 7px; }
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #222; }
+    header { display: flex; gap: 12px; align-items: center; }
+    h1 { margin: 0; font-size: 24px; }
+    h2 { margin: 24px 0 8px; font-size: 18px; }
+    .layout { display: grid; gap: 24px; grid-template-columns: 1fr 1fr; align-items: start; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; }
+    th { background: #f3f3f3; }
+    tr.accepted { background: #fff7cc; }
+    tr.succeed { background: #e8f7ea; }
+    tr.failed { background: #fdecec; }
+    button, input, select { font: inherit; padding: 6px; }
     button { cursor: pointer; }
-    .primary { font-weight: 700; }
-    .name, .job-title, .result { font-weight: 700; }
-    .id, .meta, .empty, .status { color: #666; overflow-wrap: anywhere; }
-    .pill { border: 1px solid #ddd; border-radius: 999px; padding: 2px 8px; }
-    .pill.accepted { background: #eef4ff; }
-    .pill.succeed { background: #e8f7ea; }
-    .pill.failed { background: #fdecec; }
+    .status { min-height: 24px; color: #555; }
+    .id { font-family: ui-monospace, SFMono-Regular, monospace; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Fleet Control</h1>
-      <button id="refresh">Refresh</button>
-    </header>
-    <p class="status" id="status"></p>
-    <div class="layout">
-      <section class="panel">
-        <h2>Agents</h2>
-        <div class="agents" id="agents"></div>
-      </section>
-      <section class="panel">
-        <h2>Jobs</h2>
-        <div class="jobs" id="jobs"></div>
-      </section>
-    </div>
-  </main>
+  <header>
+    <h1>Fleet Control</h1>
+    <button id="refresh">Refresh</button>
+  </header>
+  <p class="status" id="status"></p>
+
+  <div class="layout">
+    <section>
+      <h2>Agents</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Agent id</th>
+            <th>Name</th>
+            <th>Command</th>
+            <th>Compute</th>
+          </tr>
+        </thead>
+        <tbody id="agents"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Jobs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Job id</th>
+            <th>Agent id</th>
+            <th>Calculation</th>
+            <th>Number</th>
+            <th>State</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="jobs"></tbody>
+      </table>
+    </section>
+  </div>
+
   <script>
     const agentsEl = document.querySelector("#agents");
     const jobsEl = document.querySelector("#jobs");
@@ -63,86 +85,93 @@ const INDEX_HTML: &str = r##"<!doctype html>
 
     async function loadAgents() {
       const agents = await fetchJson("/fleet");
-      agentsEl.innerHTML = "";
+      const controls = saveAgentControls();
+      agentsEl.replaceChildren();
       if (agents.length === 0) {
-        agentsEl.innerHTML = '<div class="empty">No agents connected.</div>';
+        agentsEl.innerHTML = '<tr><td colspan="4">No agents connected.</td></tr>';
         return;
       }
-      for (const agent of agents) agentsEl.appendChild(renderAgent(agent));
+      for (const agent of agents) agentsEl.appendChild(renderAgent(agent, controls.get(String(agent.id))));
     }
 
     async function loadJobs() {
       const jobs = await fetchJson("/jobs");
-      jobsEl.innerHTML = "";
+      jobsEl.replaceChildren();
       if (jobs.length === 0) {
-        jobsEl.innerHTML = '<div class="empty">No jobs yet.</div>';
+        jobsEl.innerHTML = '<tr><td colspan="6">No jobs yet.</td></tr>';
         return;
       }
       for (const job of jobs) jobsEl.appendChild(renderJob(job));
     }
 
-    function renderAgent(agent) {
-      const el = document.createElement("article");
-      el.className = "agent";
-      el.innerHTML = `
-        <div class="agent-head">
-          <div>
-            <div class="name">${escapeHtml(agent.name)}</div>
-            <div class="id">${formatAgentId(agent.id)}</div>
-          </div>
-        </div>
-        <div class="actions">
+    function renderAgent(agent, controls) {
+      const row = document.createElement("tr");
+      row.dataset.agentId = String(agent.id);
+      row.innerHTML = `
+        <td class="id">${formatAgentId(agent.id)}</td>
+        <td>${escapeHtml(agent.name)}</td>
+        <td>
           <button data-kind="diagnostics">Diagnostics</button>
           <button data-kind="restart">Restart</button>
-        </div>
-        <div class="compute">
+        </td>
+        <td>
           <input type="number" step="any" value="12.5" aria-label="Compute number">
           <select aria-label="Calculation">
             <option value="double">Double</option>
             <option value="square">Square</option>
             <option value="square_root">Square root</option>
           </select>
-          <button class="primary" data-kind="compute">Compute</button>
-        </div>
+          <button data-kind="compute">Compute</button>
+        </td>
       `;
-
-      el.querySelectorAll("button[data-kind]").forEach(button => {
-        button.addEventListener("click", () => queueCommand(agent.id, button.dataset.kind, el));
+      if (controls) {
+        row.querySelector("input").value = controls.number;
+        row.querySelector("select").value = controls.calculation;
+      }
+      row.querySelectorAll("button[data-kind]").forEach(button => {
+        button.addEventListener("click", () => queueCommand(agent.id, button.dataset.kind, row));
       });
-      return el;
+      return row;
+    }
+
+    function saveAgentControls() {
+      const controls = new Map();
+      agentsEl.querySelectorAll("tr[data-agent-id]").forEach(row => {
+        controls.set(row.dataset.agentId, {
+          number: row.querySelector("input").value,
+          calculation: row.querySelector("select").value
+        });
+      });
+      return controls;
     }
 
     function renderJob(job) {
-      const el = document.createElement("article");
-      const finished = job.status === "succeed";
-      el.className = "job";
-      el.innerHTML = `
-        <div class="job-top">
-          <div>
-            <div class="job-title">${job.calculation} ${job.number}</div>
-            <div class="meta">Job ${formatJobId(job.job_id)}</div>
-          </div>
-          <span class="pill ${job.status}">${job.status}</span>
-        </div>
-        <div class="meta">Agent ${formatAgentId(job.agent_id)}</div>
-        <div class="result">${renderJobResult(job, finished)}</div>
+      const row = document.createElement("tr");
+      row.className = job.status;
+      row.innerHTML = `
+        <td class="id">${formatJobId(job.job_id)}</td>
+        <td class="id">${formatAgentId(job.agent_id)}</td>
+        <td>${job.calculation}</td>
+        <td>${job.number}</td>
+        <td>${job.status}</td>
+        <td>${renderJobResult(job)}</td>
       `;
-      return el;
+      return row;
     }
 
-    function renderJobResult(job, finished) {
-      if (finished) return `Result: ${job.result}`;
-      if (job.status === "accepted") return "Accepted by agent";
-      if (job.status === "failed") return "Failed";
-      return "Waiting for agent";
+    function renderJobResult(job) {
+      if (job.status === "succeed") return job.result;
+      if (job.status === "accepted") return "accepted";
+      if (job.status === "failed") return "failed";
+      return "";
     }
 
-    async function queueCommand(agentId, kind, root) {
+    async function queueCommand(agentId, kind, row) {
       const body = { kind };
       if (kind === "compute") {
         body.compute = {
-          number: Number(root.querySelector("input").value),
-          calculation: root.querySelector("select").value
+          number: Number(row.querySelector("input").value),
+          calculation: row.querySelector("select").value
         };
       }
 
