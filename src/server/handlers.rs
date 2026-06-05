@@ -207,6 +207,13 @@ pub(super) async fn submit_job(
     let job_id = parse_job_id(&job_id_str).map_err(|_| ApiError::BadRequest("invalid job id"))?;
     complete_job(&state, agent_id, job_id, &submission)?;
 
+    // If agent reports it's restarting or exiting, mark it disconnected so
+    // the registry reflects the transient offline state.
+    if submission.result == "restarting" || submission.result == "exiting" {
+        warn!(agent_id = %display_agent_id(agent_id), result = %submission.result, "agent reported transient offline — marking disconnected");
+        state.registry.mark_disconnected(agent_id);
+    }
+
     info!(
         agent_id = %display_agent_id(agent_id),
         job_id = %display_job_id(job_id),
