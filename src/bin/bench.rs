@@ -25,7 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    info!(agents = AGENT_COUNT, pings = PINGS_PER_AGENT, "starting ping benchmark");
+    info!(
+        agents = AGENT_COUNT,
+        pings = PINGS_PER_AGENT,
+        "starting ping benchmark"
+    );
 
     let mut handles = Vec::with_capacity(AGENT_COUNT);
 
@@ -59,9 +63,15 @@ async fn run_agent(client: &reqwest::Client, base: &str, index: usize) {
     {
         Ok(r) => match r.json().await {
             Ok(a) => a,
-            Err(e) => { error!(%e, agent = %name, "register parse failed"); return; }
+            Err(e) => {
+                error!(%e, agent = %name, "register parse failed");
+                return;
+            }
         },
-        Err(e) => { error!(%e, agent = %name, "register failed"); return; }
+        Err(e) => {
+            error!(%e, agent = %name, "register failed");
+            return;
+        }
     };
 
     for ping_num in 0..PINGS_PER_AGENT {
@@ -75,9 +85,15 @@ async fn run_agent(client: &reqwest::Client, base: &str, index: usize) {
         {
             Ok(r) => match r.json().await {
                 Ok(c) => c,
-                Err(e) => { error!(%e, agent = %name, ping_num, "queue parse failed"); continue; }
+                Err(e) => {
+                    error!(%e, agent = %name, ping_num, "queue parse failed");
+                    continue;
+                }
             },
-            Err(e) => { error!(%e, agent = %name, ping_num, "queue failed"); continue; }
+            Err(e) => {
+                error!(%e, agent = %name, ping_num, "queue failed");
+                continue;
+            }
         };
 
         // Poll for the command (act as agent).
@@ -89,9 +105,15 @@ async fn run_agent(client: &reqwest::Client, base: &str, index: usize) {
         {
             Ok(r) => match r.json().await {
                 Ok(c) => c,
-                Err(e) => { error!(%e, agent = %name, ping_num, "poll parse failed"); continue; }
+                Err(e) => {
+                    error!(%e, agent = %name, ping_num, "poll parse failed");
+                    continue;
+                }
             },
-            Err(e) => { error!(%e, agent = %name, ping_num, "poll failed"); continue; }
+            Err(e) => {
+                error!(%e, agent = %name, ping_num, "poll failed");
+                continue;
+            }
         };
 
         // Submit result — server computes the latency.
@@ -102,7 +124,9 @@ async fn run_agent(client: &reqwest::Client, base: &str, index: usize) {
                 agent.id,
                 format_job_id(cmd.job_id)
             ))
-            .json(&JobSubmission { result: "pong".to_owned() })
+            .json(&JobSubmission {
+                result: "pong".to_owned(),
+            })
             .send()
             .await
             .and_then(|r| r.error_for_status())
@@ -110,6 +134,51 @@ async fn run_agent(client: &reqwest::Client, base: &str, index: usize) {
             Ok(_) => info!(agent = %name, ping_num, "ping submitted"),
             Err(e) => error!(%e, agent = %name, ping_num, "submit failed"),
         }
+    }
+
+    // After pings, send an Exit command and submit an "exiting" result.
+    let cmd: FleetCommand = match client
+        .post(format!("{}/fleet/{}/commands", base, agent.id))
+        .json(&CommandRequest::Exit)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(r) => match r.json().await {
+            Ok(c) => c,
+            Err(e) => { error!(%e, agent = %name, "queue exit parse failed"); return; }
+        },
+        Err(e) => { error!(%e, agent = %name, "queue exit failed"); return; }
+    };
+
+    // Poll for the exit command.
+    let _received: FleetCommand = match client
+        .get(format!("{}/fleet/{}/commands/next", base, agent.id))
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(r) => match r.json().await {
+            Ok(c) => c,
+            Err(e) => { error!(%e, agent = %name, "exit poll parse failed"); return; }
+        },
+        Err(e) => { error!(%e, agent = %name, "exit poll failed"); return; }
+    };
+
+    match client
+        .post(format!(
+            "{}/fleet/{}/jobs/{}/submit",
+            base,
+            agent.id,
+            format_job_id(cmd.job_id)
+        ))
+        .json(&JobSubmission { result: "exiting".to_owned() })
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(_) => info!(agent = %name, "exit submitted"),
+        Err(e) => error!(%e, agent = %name, "exit submit failed"),
     }
 }
 

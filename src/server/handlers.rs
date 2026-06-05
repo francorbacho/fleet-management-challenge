@@ -208,9 +208,9 @@ pub(super) async fn submit_job(
     complete_job(&state, agent_id, job_id, &submission)?;
 
     // If agent reports it's restarting or exiting, mark it disconnected so
-    // the registry reflects the transient offline state.
+    // the registry reflects the offline state.
     if submission.result == "restarting" || submission.result == "exiting" {
-        warn!(agent_id = %display_agent_id(agent_id), result = %submission.result, "agent reported transient offline — marking disconnected");
+        info!(agent_id = %display_agent_id(agent_id), result = %submission.result, "agent marked disconnected");
         state.registry.mark_disconnected(agent_id);
     }
 
